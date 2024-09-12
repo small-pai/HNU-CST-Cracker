@@ -1,0 +1,769 @@
+ARM指令系统(通用指令32位)
+任务：写启动代码 startup.s
+	
+一、汇编指令类别
+	1. ARM汇编指令(ARM公司定)
+		一条汇编指令唯一对应一条机器指令 RISC 
+			MOV R0, #5  => 010101...
+			MOV R0,R1
+			ADD R2,R1,R0
+			
+		操作码: 表示是何种操作  "指令助记符"
+				MOV 表示 移动 
+				ADD 表示 加法
+
+				....
+		操作数:
+				结果操作数： 用来保存计算的结果 目的操作数 前置
+				运算操作数：	
+					第一操作数 R
+					第二操作数 				
+		
+		指令是用来“运算”：运算符
+						 操作数	
+	
+	2. 伪指令(由编译器厂商定的，keil环境下有keil的伪指令，
+			GNU环境有gnu的伪指令)
+			
+		keil环境下常用的伪指令:
+			数据 C
+			int a = 5; 
+			int b[10];
+			int c[10] = {2,3};
+			
+			data_a				//顶格写的 标号，标号表示一个地址
+				DCD 5		//DCD X : 分配4bytes空间并且把X的值，填入此处
+										
+			data_b
+				SPACE 40   //SPACE X : 在此处开辟 X 个字节的空间，内容不定。
+					
+			data_c
+				DCD 2
+				DCD 3
+				SPACE 8*4				
+				
+			"段"：  分区域
+				代码段 这个区域都是代码---ROM 0x08000000---
+				数据段 这个区域存放的是全局的数据 
+				堆栈段 stack
+				...
+				那么在keil下面如何定义“段”呢?					
+					AREA 段名1, 段的属性1, 段的属性2, ...
+				eg：		AREA  mstack, DATA, READWRITE
+					
+					AREA 段名2 。。。
+				eg:AREA RESET , DATA, READONLY					
+					
+					END
+				段名：自己定义，规定的定义
+				段的属性1：
+					CODE  代码段
+					CODE32  thumb-2代码
+					DATA  数据段
+					NOINIT 不初始化
+					
+				属性2：
+				READWRITE   只读可写				。。。
+				READONLY  只读
+				属性3
+				ALIGN=3   8字节对齐(2的3次幂对齐)
+							Cortex-M4要求代码必须是 8字节对齐，否则编译不会通过;	
+							PRESERVE8 指令,表示后续如果没有特殊说明,都是采用 8字节对齐
+							当有C语言和汇编并存时，C语言的编译后的指令也需要8字节对齐，
+							这时这条指令可以实现。
+		
+	3. 宏指令(同上，由编译器厂商指定)
+	由编译器厂商写的，keil环境下有keil的宏指令 。。。	在keil中需要顶格		
+			stack_size  EQU  0x200 ; // #define  stack_size 0x200
+
+	4.keil环境下的汇编语句格式:		
+		lable   指令     ;注释		
+			lable：顶格写，标识这一行的地址			
+			指令：ARM指令，伪指令				
+			; 到行末，都是注释部分。
+			
+练习：
+			一个启动 .s文件（start.s），至少需要包含三个段:		
+			
+					;//堆栈段										
+					; //中断向量表
+					
+					; //代码段
+					
+参考代码：（作业，带上注释）		
+	
+二、ARM指令的寻址方式（自学）	
+
+三、ARM指令的格式
+	ARM指令的基本格式	
+	<opcode>{<cond>}{S} <Rd>, <operand1> {, <operand2>}
+	<>内的必须要的 {} 可选的
+	
+	opcode: operator code 操作码，指令助记符，表示哪条指令
+		如:	
+			MOV
+			ADD
+			SUB
+			LDR/STR
+			...
+
+	cond: condition 条件。该指令执行的条件。如果省略不写，
+		则表示该条件指令无条件执行(必须执行)
+		
+		if (r1 == r2)
+		{
+			r0 = 250;  // MOV R0, #250
+		}
+		=>
+			CMP R1, R2;   => if R1 == R2 , R1 - R2结果为0,
+							 xPSR.Z == 1
+							 
+			//MOV(xPSR.Z == 1) R0, #250
+			MOVEQ R0, #250
+				EQ "equal"  => 检查 xPSR.Z == 1
+			EQ => 条件  P71
+				条件码			含义			   测试的标志(xPSR中的标志位)
+				EQ				Equal(相等)     			Z==1
+				NE				Not Equal(不相等)      		Z==0
+				CS/HS			Carry Set (C == 1)
+								unsigned Higher or Same  	C == 1
+								a>=b 				
+				CC/LO			Carry Clear(C == 0)			C == 0
+								a<b		
+				MI				MInous(负数)				N == 1				
+				PL				Positive or Zero(非负数)	N == 0
+												
+				VS				V Set(溢出)				V == 1				
+				VC				V Clear(没溢出)			V == 0
+				
+				HI				unsigned Higher			(C == 1) && (Z == 0)																
+				LS				unsigned Lower or Same	 (C == 0) || (Z == 1)
+																
+				GE				signed Greater or Equal     N == V
+								>=								
+			
+				LT				Less Than					N != V
+								 <
+								 
+				GT				Greater Than				(N == V) && (Z == 0)
+									>
+				LE				Less than or Equal			(Z==1) ||(N != V)	
+				
+
+
+	S:  Status 表示该指令执行结果是否影响xPSR(程序状态寄存器)的标志位
+		
+		如：
+			MOV R0, #0; -> 不会影响任何状态标志
+			MOVS R0, #0 ; ->会影响状态标志位
+			
+		有一些指令如: CMP, CMN, TEQ ... 这些不加S也影响状态标志位
+				因为这些指令，不保存运算结果，只影响状态标志位
+
+	Rd: Register Desatiation 目标寄存器
+		用来保存运算的结果
+	operand1:	第一个操作数
+	
+	operand2: 第2个操作数(有些指令没有第二个操作数).
+	操作数有如下形式:
+			(1) #immer_8r 立即数(常量表达式)
+					立即数 -> 常数
+				立即数的生成是有要求的:
+				by 0-255 shifted left by 0-23 or duplicated in all, odd or even bytes		
+					ADD R0, R1, #250		
+					ADD R0, R1, #0x10
+					ADD R0, R1, #(1 << 3) | (1 <<4)
+			为了避免立即数不合规	
+			建议大家这样用：
+			LDR R0, =666666
+			(2) Rm 寄存器
+				操作数可以是一个寄存器。
+				如:
+					ADD R0, R1, R2;
+						R1 + R2 -> R0
+						
+			(3) Rm,shift 寄存器移位方式 
+				操作数可以是一个寄存器加移位方式				
+				算术移位符号参与，逻辑移位无符号
+					算术右移：右边的低位直接干掉，左边全部补符号位。
+					逻辑移位：无论是左移还是右移全部补0.
+					
+					C语言的中的移位是算术移位还是逻辑移位？
+					int
+						-1 >> 30   ? -1
+						-1u >> 30  ? 3
+						
+						typeof(-1) => int
+						typeof(-1u) => unsigned int
+				
+					LSL #n  
+						Logic Shift Left 逻辑左移n位,
+						Logic逻辑移位，无论是左移还是右移，空出的位，都补0
+					LSR #n
+						Logic Shift Right 逻辑右移n位,
+						
+						在移出的位为0的情况下， 
+							LSL #n 就相当于在原寄存器值 乘以 2的n次方
+							LSR #n 就相当于在原寄存器值 除以 2的n次方
+					
+					ASR #n 算术右移n位
+						算术移位，不应该改变它的符号。
+						最高n位补符号位的值.
+						
+					ASL #n  没有。 => LSL 				
+				
+					ROR #n		Rotate Right 循环右移
+						把右边移的n位，补到最左边。
+						
+					RRX 带扩展的循环右移1位
+						带C(xPSR.C) 那个位			
+				
+					type Rs
+						type为上述移位方式的一种，如: LSL, LSR,ASR, ROR, RRX...
+						Rs偏移量寄存器，低8位有效，要移的bit位数保存在Rs中。
+						
+代码测试：
+	（1）	MOV R1,#3	;r1==3
+			MOV R2,#1	;r2==1
+			LSL R2,R1	;r2==8  1<<3
+	（2）	ADD R0, R1, R2, LSR #2;(2)和（1）组合测试
+					r1==3
+					r2==8
+					r0==5 		
+	（3） R0<--2 R0*12--->R2
+		写出代码！内卷 指令字节数少
+		
+				
+				
+四、ARM指令(UAL)
+	1. ARM存储器访问指令
+		用来在存储器(Memory,) 《－》寄存器之间传递数据
+		
+		把数据从存储器 -> 寄存器  加载  Loader  LDR
+		把数据从寄存器 -> 存储器  存储  Store   STR
+		
+		
+		(1) 
+			LDR{cond} {S}	{B/H}	Rd, <地址>
+			STR{cond}   	{B/H}	Rd, <地址>
+			
+			LDR加载，把存储器<地址>中的内容加载到 寄存器Rd中
+			STR存储，把寄存器Rd中的内容，存储到存储器<地址>中去
+					
+			NOTE：
+			a. B: Byte一个字节， H: Half word半字(两个字节), 如果省略，默认为4个字节
+				B/H决定加载/存储多少个字节
+			
+			   S: Signed把地址的那个变量，当作是一个有符号的。
+				如果没有S就把地址的那个变量，当作是一个无符号的。
+				短 -> 长的（B/H）。有符号来说，高位全部补符号位，
+						如果是无符号的，高位全部补0
+			
+			b. 地址确定方式： 基址寄存器 + 偏移量
+				地址值肯定需要在一个寄存器中
+				即：
+											地址值	
+					[Rn]				Rn
+					--------------------------------------------------
+					[Rn, 偏移量]  		Rn + 偏移量		Rn值不变
+					[Rn, 偏移量]!		Rn + 偏移量		Rn值+偏移量
+					[Rn], 偏移量		Rn				Rn值=Rn +  偏移量
+					
+					[]内表示存储器的地址值 ，
+						如果有!或，偏移量在[]外边，则表示做完后，基址值自动增加偏移量
+					偏移量有以下3种方式:
+						立即数:
+							如:	 LDR R1, [R0, #0x12]
+									[R0+0x12] -> R1
+						寄存器
+							如:	LDR R1, [R0, R2]
+									[R0+R2] -> R1
+						寄存器及移位常数
+							如:	LDR R1, [R0, R2, LSL #2]
+									[R0 + R2 << 2] -> R1
+					
+		任务1：
+		给存储器0x20001000单元写入一个整数（-2）.
+		
+		任务2：将0x20001000单元的数值转到0x20001008。自己完成！ 
+		
+		练习：
+			(1.1)	
+				char ch =0x80; //编译时刻或运行时刻，为ch分配一个存储器空间 0x2000 1000
+				int a;	//编译时刻或运行时刻，为a分配一个存储器空间  0x2000 1004
+				a =	ch;						
+								
+				
+			(1.2)
+				unsigned char ch =0x80; //编译时刻或运行时刻，为ch分配一个存储器空间 0x2000 1000
+				int a;	//编译时刻或运行时刻，为a分配一个存储器空间  0x2000 1004
+				a =	ch;					
+				
+									
+		(2) 多寄存器存取
+			在一个连续的存储器地址上，进行多个寄存器的存取。
+			加载 LDR  多 Multi
+			
+			多寄存器加载   LDM  Loader Multi
+			多寄存器存储   STM	Store  Multi
+			
+			LDM{cond}<模式>  Rn{!}, reglist
+			STM{cond}<模式>	Rn{!}, reglist
+			
+			a. 这两条指令只是通过一个寄存器 Rn指定了一个存储器的地址，
+			   存储器的多个地址，是连续增加，还是连续递减呢?
+				由<模式>来指定:
+				注意：无论是哪种模式，低地址都是对应编号低的寄存器
+					IA: Incrememt After() 每次传送后地址自动增加(+4) <-----
+					DB: Decrement Before  每次传送前地址自动减少(-4) <-----
+					IB: Increment Before  每次传送前地址先自动增加(+4)
+					DA：Decrement After   每次传送后地址自动减少(-4)
+					ARM Cortex M4只使用IA, DB
+			b. reglist: 表示寄存器列表，可以包含多个寄存器，
+				使用","隔开，寄存器由小到大排列(编译系统会自动按序号排)
+					如： {R1,R3,R4,R5}
+						{R1,R3-R5}						
+			c.	 !  可加可不加
+				加： 表示最后存储器的地址写入到Rn中去。
+				不加： 最后Rn的值不变
+				
+			任务：将R0-R3放到存储器单元0x20000200开始的递减连续单元存放，然后再恢复
+			参考代码：
+			
+		-----------------------------------------------------------------------------------	
+			
+				
+			
+		(3) 堆栈操作：堆栈的低地址对应编号低的寄存器
+				压栈:	PUSH <reglist>
+				出栈: 	POP   <reglist>
+				
+				"栈"就是一块内存，上面那两条指令，并没有指定内存地址，
+				PUSH, POP用的地址寄存器是SP
+				
+				堆栈有四种类型：	
+					A: add 递增堆栈   D: Dec递减堆栈
+					SP堆栈 栈顶指针，
+						栈顶指针可以保存元素   -> 满堆栈  Full
+						也可以指向空(不保存元素) ->空堆栈  Empty
+						
+				EA: 空递增
+					PUSH X
+						X -> [SP]
+						sp ++
+						
+					POP  x
+						sp--
+						[sp] -> x
+				
+				FA: 满递增
+					PUSH X
+						sp ++
+						x -> [SP]
+						
+					POP x
+						[sp] -> x
+						sp --
+								
+				ED: 空递减
+					PUSH X
+						x -> [sp]
+						SP--
+					POP x
+						sp++
+						[sp] -> x
+				
+				
+				FD: 满递减     <----- ARM采用的堆栈形式是: FD满递减堆栈
+					PUSH X
+						sp--
+						x -> [sp]
+						
+					POP x
+						[sp] -> x
+						sp++
+					
+				
+				例子： C函数的实现
+					“现场保护” ：
+					“现场恢复”			
+				PUSH X
+						sp--   //0x20000200
+						x -> [sp]
+					//PUSH {R0-R3}
+					0x20000200-4  0x200001FC  R3
+								  0x200001F8  R2
+								  0x200001F4  R1 
+								  0x200001F0  R0
+				POP x
+						[sp] -> x
+						sp++
+				//POP {R0-R3}
+			//SP--0x200001F0  R0-->R1--->R2--->R3 SP 0x20000200
+				
+		(堆栈的低地址对应编号低的寄存器)			
+	
+				
+	2. ARM数据处理指令  -> 对寄存器内容操作
+		数据传送指令
+		算术运算指令
+		逻辑运算指令
+		比较指令
+		(1) 数据传送指令
+			MOV{cond}{S} Rd, operand2 ; Rd <-- operand2
+			MVN{cond}{S} Rd, operand2 ;  Rd <--- ~operand2(取反) 			
+			
+			S: 表示结果影响xPSR状态标志位
+				第二操作数 operand2 -> Rd
+				如:
+					MOV R0, #3
+					MOV R1, R0
+					MOV R2, R1, LSL #2
+			－－－－－
+			MOV R0,#-1 <==>MVN R0,#0
+			
+		(2) 算术运算： 加减
+			ADD{cond}{S} Rd, Rn, operand2;		Rd <--- Rn + operand2
+			ADC{cond}{S} Rd, Rn, operand2;  	Rd <--- Rn + operand2 + xPSR.C
+			
+			例子:
+				实现64bits 加法  a + b  -> c
+				a : R1   R0
+				b : R3   R2
+				c : R5	 R4
+				
+				ADDS R4, R2, R0
+				ADCS R5, R3, R1
+				
+			SUB{cond}{S} Rd, Rn, operand2;  Rd <--- Rn - operand2
+			SBC{cond}{S} Rd, Rn, operand2;  Rd <--- Rn - operand2 - !xPSR.C 带借位的减法
+	
+			例子	实现64bits 减法  a - b  -> c
+				a : R1   R0
+				b : R3   R2
+				c : R5	 R4
+				
+				SUBS R4, R0, R2  ; 此时 if R0 - R2产生的借位 -> xPSR.C == 0
+				SBCS R5, R1, R3  ;    R1 - R3 - 借位
+									借位： !xPSR.C
+				
+			RSB 逆向减法指令
+				Reserve
+			RSB{cond}{S} Rd, Rn, operand2;  operand2 - Rn  -> Rd
+			RSC{cond}{S} Rd, Rn, operand2;  operand2 - Rn - !xPSR.C -> Rd 带借位的逆向减法
+			
+		(3) 逻辑运算指令 (按位)
+			AND{cond}{S} Rd, Rn, operand2; AND 与， Rn & operand2 -> Rd 按位与
+			ORR{cond}{S} Rd, Rn, operand2; OR 或，  Rn | operand2 -> Rd 按位或
+			EOR{cond}{S} Rd, Rn, operand2; EOR 异或 Rn ^ operand2 -> Rd 按位异或
+			
+				BIt Clear 位清零，把一个指定寄存器的中，指定的bit位给清掉
+			BIC{cond}{S} Rd, Rn, operand2;  Rn & (~operand2) -> Rd
+					把Rn中 operand2中的为1的哪些位置上的bit位清零。
+				
+				
+		练习：	
+			R0 低4位清零
+				
+			R0 清零
+				
+			取寄存器R0中的b7-b10，赋值给R1	
+				
+					
+						
+		(4) 比较指令： 不需要加S,直接影响xPSR中的标志位。运算结果不保存。
+			CMP Rn, operand2; 比较Rn与operand2的大小  Rn - operand2
+				if Rn == operand2 
+				CMP Rn, operand2
+					xPSR.Z == 1 => EQ	
+					
+			CMN Rn, operand2; 比较Rn与operand2的大小， Rn + operand2(负数比较)
+				
+			
+			TST Rn, operand2 ; Rn & operand2
+				用来测试Rn中特定的bit位是否为1.
+					Rn & operand2  => xPSR.Z == 1
+									=> 说明operand2中为1的哪些bit的，在
+										Rn都为0
+			
+				例子:
+					测试R2中的第2和第3bit位,是否为1
+						1100
+					
+						
+			TEQ	Rn, operand2 ; Rn ^ operand2  测试是否相等
+					Rn == operand2 => Rn ^ operand2 == 0 => xPSR.Z == 1	
+	
+	3. 乘法指令
+		略
+		
+	4.分支指令:用来实现代码的跳转
+		有两种方式可以实现程序的跳转
+		(1) 分支指令
+			B   lable ;  lable -> PC,  不带返回的跳转 
+							
+			BL  lable ;	 过程调用，函数调用 带返回的
+						把下一条指令的地址 -> LR
+						lable -> PC
+			
+		(2) 直接向PC寄存器赋值
+			MOV PC, LR
+			MOV PC, #0x80000000
+	
+	
+	5. 杂项指令		
+		MRS	Rd,  xPSR
+			xPSR: APSR, IPSR, EPSR
+			程序状态寄存器的值 赋值给Rd		
+			MOVS R1,#-1
+			MRS R0,APSR	;R0==0x80000000
+		MSR xPSR, Rd
+			将通用寄存器Rd的值，赋值给程序状态寄存器
+	
+	
+	6.伪指令: 
+		伪指令，机器不识别，但是可以表示程序员或编译器的某种想要的操作。
+		编译器会把伪指令变成一条或多条合适的机器指令。
+		
+		(1) NOP
+				No Operation 
+			空操作，不产生任何实际的效果，但是占用机器周期。
+			
+				(1)
+				NOP
+				NOP
+				(2)
+				
+			NOP
+				<-> MOV R0, R0
+				   MOV R1, R1
+				   MOV R2, R2
+				   .....
+							
+		(2) LDR{cond} Rd, =expr
+			LDR伪指令用于加载表达式expr的值，到寄存器Rd中去。
+			expr可以为一个任意的常数，或标号，或常量表达式...
+				LDR Rd, =expr
+			=>
+					expr: (1<< 2) 
+				a: 如果expr是一个合法的立即数
+					LDR Rd, =expr
+					<=>	MOV Rd, #expr
+					
+				b: 解决立即数不合规的问题，可以直接给出存储器的地址	
+					LDR R0,=0x12345678
+					LDR R0,=0x20001000
+				C:	标号（地址）
+				（1）				
+				LDR Rd, =data1
+				data1	
+					DCD 0x12345678 
+				（2）int i=4;	
+					;先定义数据段
+				AREA mydata,DATA,READWRITE
+			data_i
+				SPACE 4
+				;标号指向数据空间的地址
+				MOV R0,#4
+				LDR R1,=data_i
+				STR R0,[R1]
+						
+四、ARM程序设计
+	1. if/else 如何实现的
+		
+		if (a > b)
+		{
+			c = 5;
+		}
+		else
+		{
+			c = 6;
+		}
+			
+			
+		思考：if ( likely(a > b) )
+				{}
+				else
+				{}			
+			likely(x) :编译器的修饰词，告诉编译器，后面的这个表达式x很有可能成立 
+			unlikely(x):编译器的修饰词，告诉编译器，后面的这个表达式x不太可能成立
+			编译器会选择？
+			
+	2. 循环是如何实现的
+	
+		for (i = 1, sum = 0; i <= 10;i++)
+		{
+			sum = sum + i;
+		}		
+		=>
+			初始条件 i--R0==1,sum--R1==0
+			循环条件：R0<=10  ---CMP R0,#10 LE 就执行循环 GT 跳出循环 (到结束的地方lable) B 
+			循环体：用两个标号，分别标识循环体的开始和结束
+					;只用一个标号，也可以，标识循环体的开始					
+		loop_sum
+			ADD R1,R1,R0
+			ADD R0,R0,#1
+		loop_sum_end
+	
+	难点在于循环条件
+	1.循环条件写入循环体
+	2.不满足跳出 B end ，满足顺序执行
+	3.循环体末尾 无条件不返回跳到循环开始的位置 B loopstart	
+					
+		练习：计算100以内所有的奇数之和。
+	参考代码：
+		
+				
+	3. 过程调用(函数调用)如何实现
+	ATPCS: ARM/Thumb Procedure Call Standard 
+				ARM/Thumb过程调用标准
+			ARM定的.
+		记住:过程调用就是这样
+		label PROC
+			PUSH
+			（看你的）
+			POP
+			ENDP
+		
+		理解难点在这里
+		(1)入口参数传送用 R0, R1,R2, R3,如果超过4个参数，后面的参数需要放到栈空间
+		R0:对应第一个参数 R1:第二个参数……
+		(2) 函数的返回值用R0,如果是64bits，用R1（高32位） R0.超过64bits的返回值，不支持;
+		提醒：R0是返回值，所以在实现过程中，你要记住R0不要乱用。
+			"单值类型"
+		(3) 函数实现
+			“现场保护”  PUSH R0-R12 LR 
+				 Reglists  -> 栈  PUSH {寄存器列表}
+				传递参数的那几个寄存器你不需要保护, why? 
+					因为那几个寄存器本身就是传递给你用的，你无须保护。				
+				建议： 非参数寄存器(除了SP,PC)都要保存
+				
+					假设你的过程参数用R0,R1
+				PUSH {R2-R12,LR}				
+			"现场恢复"	POP			
+					 假设你的过程参数用R0,R1
+				POP {R2-R12, PC}		
+				
+				LR也要保存，否则，在过程中，就不能调用其他过程啦。
+				
+			练习：写一个过程调用 计算两个数之和
+			参考代码：	这里特别提醒一下，test_start PROC	……ENDP
+			
+					
+	4. 汇编文件 与 C文件共存
+		
+		第一点：汇编中如何调用C代码
+		1.需要在汇编文件，"进口"：引入相应的全局变量名或全局函数， “符号”
+				IMPORT  函数名or全局变量名 
+		2.直接调用就好
+		 BL sum_three
+		
+		第二点：C文件中如何调用汇编
+		1.申明是外部函数 例如：extern int sum_two(int, int);
+		2.直接调用汇编过程（写对应的过程名就好）
+		3.回到汇编代码中还需要说明该函数是“出口”函数
+		需要用EXPORT把相应的全局变量名或全局函数名，导出
+		EXPORT sum_two
+		
+	练习：计算三个数相加，求和 要求用C和汇编代码协调实现。
+	目前在汇编中已经有了一个计算两个数之和的代码sum_two了。
+	只需要写一个C代码 int sum_three(int a, int b, int c) 在其中调用汇编的sum_two
+	
+	练习：汇编过程sum_two,编写一个c语言函数实现三个数之和的计算
+	extern int sum_two(int, int);
+	int sum(int a, int b, int c)
+	{
+		return  c+sum_two(a, b);
+	}
+	
+	要点：main.c中添加extern int sum_two(int, int);
+	在汇编start.s中添加：
+	1.	IMPORT sum_three
+		EXPORT sum_two	
+	2.	修改
+	test_start proc
+		
+	MOV R0,#2
+	MOV R1,#3
+	MOV R2,#4
+	BL sum_three
+	B .		;while(1)
+	ENDP
+	
+			
+			
+	作业:	
+		1. 用汇编语言实现一个函数，判断a是否为b的倍数
+		
+			C:
+				/*
+					return 1: a是b的倍数
+					return 0: a不是b的倍数
+				*/
+				int Is_Multi(int a, int b) 3,2
+				{
+					int i = b; 2
+					
+					while (b <= a)
+					{
+						if (a == b)
+						{
+							return 1;
+						}
+						b = b + i;
+					}
+				
+					return 0;
+					
+				}
+		
+	2.  用汇编语言实现一个函数，判断一个数x是否为质数
+		
+			C:
+				int Is_Prime(int x)
+				{
+					int i ;
+					
+					for (i = 2; i < x; i++)
+					{
+						if (Is_Multi(x, i))
+						{
+							return 0;
+						}
+					}
+					
+					return 1;
+				}
+				
+	
+		
+	3. 用汇编语言实现100以内所有素数之和
+			提示：
+				把100以内所有的质数，都保存在一个数组中。						
+				x是不是质数	拿 < x的所有素数去整除x,即可。 
+	怎么找素数？
+	2就是最小的素数
+	定义一个数据段 存放找到的素数 
+	data_prime  2
+	sum=2
+	
+	3是素数吗？Is_Multi(3, 2) 返回 0 是素数
+	
+	3存入
+	data_prime  2,3
+	sum=5
+	4是素数吗？
+	依次把 2，3 去判断 Is_Multi(4, 2) 返回是1 --4不是素数 4不存入
+	 
+	5是素数吗？
+	依次把 2，3 去判断 Is_Multi(5, 2) 返回是0 --Is_Multi(5, 3) 返回是 0 5就是素数 存入
+	data_prime  2,3,5
+	sum=10
+	
+	<99 继续……
+
+	4.求1000以内的完数，把个数保存到R0，求出来的完数保存在数据区
+	5.判断闰年函数
+	6.求最近质数函数
+		;求一个正整数n的最近质数，如果n本身就是质数，则返回本身，
+		;如果有两个最近质数，返回较小的哪个。
