@@ -1,0 +1,326 @@
+任务：S1-S4 --D1-D4 S1按下D1 亮 S1松开弹起D1灭了 S2-D2 S3-D3 S4-D4
+S1-按下KEY0-PA0(GPIO MODE IN --0)--MCU->0--PF9(MODE OUT) 亮--松开弹起 PA0--1---1 MCU 1--->PF9 -D1不亮
+S2--PE2
+S3--PE3
+S4--PE4
+
+问题：按键检测main --while(1)	
+	if(Bit_RESET == GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0))
+	{GPIO_ResetBits(GPIOF, GPIO_Pin_9);}
+	else
+	{GPIO_SetBits(GPIOF, GPIO_Pin_9);}
+	
+	不停地去读取按键相应的GPIO口的电平状态，再去做相应的处理。
+		1  -> 弹起		0  -> 按下		
+	"轮询"：
+		(1) 占用CPU
+		(2) 占用总线，Bus is always busy.
+		(3) 轮询有一个时间差，不及时
+	怎么办：按键按下或弹起时，“知乎”CPU.（中断机制）	
+	
+1. 中断：CPU指令执行过程中，被“紧急”事件打断，（中断响应）  按键了---外部中断
+		停止正在运行的程序并转入处理新情况的程序，（中断处理）
+		处理完毕后又返回原被暂停的程序继续运行。（中断返回）
+	
+2. ARM Cortex M4中断机制
+	
+	中断控制器IC“通知”MCU,有“事”（中断事件）啦,MCU会停止正在做的程序事件，转而中断处理。
+	M4给不同的事件(中断),一个唯一的中断编号(为了区分不同的中断事件)。
+	当不同的中断事件产生时，MCU作不同的处理。	
+	这个是怎么做到的呢？中断向量表
+	中断向量表是什么？
+				DCD    	EXTI0_IRQHandler 	              ; EXTI Line0      PA0                                        
+                DCD     EXTI1_IRQHandler                  ; EXTI Line1                                             
+                DCD    	EXTI2_IRQHandler                  ; EXTI Line2                                             
+                DCD     EXTI3_IRQHandler                  ; EXTI Line3                                             
+                DCD     EXTI4_IRQHandler                  ; EXTI Line4   
+			产生中断后，cpu到指定的地址取中断处理函数的函数指针，然后去执行中断响应函数。
+			看表！或数据手册234页	
+			中断处理函数：
+			void ***_isr(void)
+			void EXTI0_IRQHandler(void){}
+			说明：1.无返回 无入口参数
+			2.普通函数 申明 定义 调用（主动）但是中断响应函数 cpu被动调用
+			3.中断响应函数的函数名必须和中断向量表中的一致	
+			
+		
+3. STM32F4xx 中断管理
+	任何中断产生到cpu响应，都要经过两个阶段:
+	(1) 中断源的控制
+		"中断源":产生中断的设备。
+		设备要能够产生中断，必须有一根中断请求线(IRQ Line),而且
+		这根中断请求线，必须连到嵌套中断控制器(NVIC，(Nested Vectored Interrupt Controller))
+		的中断输入引脚上去。	
+	(2) 中断控制器的控制　 NVIC
+		对所有的中断输入引脚进行管理和控制，给cpu内核一个中断信号，
+		通知cpu某某设备产生中断啦。		
+		
+		一个设备产生了中断首先要经过　“中断源”这一级，“中断源”可以屏蔽
+		或使能中断(disable/enable 自己的中断)，即便是外部电路上产生了
+		一个“事件”，中断源可以不向它上一级NVIC(中断控制器)报告
+			若“报告”：在NVIC的输入引脚上产生一个“跳变”。
+			
+		中断控制器(NVIC)它也可以控制中断，它在收到外设的中断信号后，也可以
+		选择enable/disable这个中断，意思是，它可以选择向它的上一级(CPU)报告
+		或不报告。		
+		具体请参考图示《STM32F4xx中断总概述图》。	
+		
+		
+4. STM32F4XX 外部中断
+	中断：
+		异常：cpu产生的，如：指令错误，……
+		中断：外设(除了cpu以外的设备)产生（UART I2C TIM GPIO ）
+	中断分为：外设中断　和　外部中断.
+		外部中断是指GPIO的外部电路上产生的中断 (如按键中断)		
+		EXTI: external interrupt 外部中断
+		STM32F4的中断控制器支持23个外部中断/事件请求
+			EXTI0-EXTI22
+		EXTI线0~15：对应外部IO口的输入中断
+		GPIOx.0映射到EXTI0
+		GPIOx.1映射到EXTI1
+		GPIOx.15映射到EXTI15
+		
+		PA0--EXTI0  PE2--EXTI2 PE3-EXTI3 PE4-EXTI4
+	注意：一条中断线的在同一时间只能被一个IO口映射。
+	例子：S1-KEY0---PA0 ---EXTI0--NVIC--CPU-EXTI0_IRQHandler   ; EXTI Line0
+		GPIO外部中断的路线图		
+		外部电路变化 -> 引脚电平变化 -> GPIO控制器 -> SYSCFG选择器
+		-> EXTI外部中断控制器  -> NVIC中断控制器 -> CPU(Cortex M4)		
+		GPIO控制器:
+			配置引脚为输入模式...
+		SYSCFG选择器
+			选择GPIO引脚作为EXTIn的输入引脚			
+		EXTI外部中断控制器
+			边沿选择
+			中断屏蔽
+			……
+		
+5. 外部中断的代码实现
+		
+	首先查看原理图：
+		KEY0 -> PA0 -> EXTI0 -> NVIC -> CPU EXTI0_IRQHandler 
+		KEY1 -> PE2 -> EXTI2 -> NVIC -> CPU EXTI2_IRQHandler 
+		KEY2 -> PE3 -> EXTI3 -> NVIC -> CPU EXTI3_IRQHandler 
+		KEY3 -> PE4 -> EXTI4 -> NVIC -> CPU EXTI4_IRQHandler 
+		
+	5.1 中断源的控制
+		(1) GPIO控制器的配置
+			a: RCC_AHB1 使能GPIO分组的时钟
+				eg:
+				RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE);
+				RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOE,ENABLE)
+			b. GPIO_Init 配置(input mode)
+				GPIO_InitTypeDef p;
+				p.GPIO_Mode = GPIO_Mode_IN;
+				p.GPIO_OType = GPIO_OType_PP;
+				p.GPIO_Pin = GPIO_Pin_0;
+				p.GPIO_PuPd = GPIO_PuPd_NOPULL;
+				p.GPIO_Speed = GPIO_Speed_50MHz;
+				GPIO_Init(GPIOA, &p);
+				p.GPIO_Pin = GPIO_Pin_2|GPIO_Pin_3|GPIO_Pin_4;
+				GPIO_Init(GPIOE, &p);
+				
+		(2) SYSCFG选择器的配置
+			a: 使能SYSCFG外设的时钟
+				RCC_APB2...
+				eg: RCC_APB2PeriphClockCmd(RCC_APB2Periph_SYSCFG,ENABLE);
+					
+	
+			b: 选择相应的GPIO引脚作为外部中断的输入引脚
+					SYSCFG_EXTILineConfig用来选择相应的GPIO引脚作为外部中断的输入引脚
+				void SYSCFG_EXTILineConfig(uint8_t EXTI_PortSourceGPIOx, 
+					uint8_t EXTI_PinSourcex);
+					EXTI_PortSourceGPIOx: 选择GPIO口分组,如:
+								EXTI_PortSourceGPIOA,
+								EXTI_PortSourceGPIOE.
+								...
+					EXTI_PinSourcex: 选择引脚的编号,如:
+								EXTI_PinSource0,
+								EXTI_PinSource2,
+								...
+				例子：选择PA0 -> EXTI0
+					SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOA,EXTI_PinSource0 );
+					选择PE2 -> EXTI2,PE3 -> EXTI3,PE4 -> EXTI4
+					SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOE,EXTI_PinSource2 );
+					SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOE,EXTI_PinSource3 );
+					SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOE,EXTI_PinSource4 );
+
+									
+		(3) EXTI外部中断控制器的配置
+					EXTI_Init用来配置EXTI外部中断控制器(边沿选择、中断屏蔽，……)
+				void EXTI_Init(EXTI_InitTypeDef* EXTI_InitStruct);
+						EXTI_InitStruct:指向配置结构体。
+							typedef struct
+							{
+							  uint32_t EXTI_Line;              
+								指定要初始化的外部中断的编号,如:
+									EXTI_Line0, -> EXTI0
+									EXTI_Line2, -> EXTI2
+									...
+									这个参数可以多个，用　“|”
+							  							  
+							  EXTIMode_TypeDef EXTI_Mode;       
+									指定外部中断线的模式(只能其一)
+									EXTI_Mode_Interrupt  中断模式
+									EXTI_Mode_Event　　事件模式
+							  
+							  EXTITrigger_TypeDef EXTI_Trigger; 
+									指定外部中断线的触发边沿模式，如下，选其一：
+								EXTI_Trigger_Rising：上升沿	　0 -> 1
+								EXTI_Trigger_Falling: 下降沿　1 -> 0
+								EXTI_Trigger_Rising_Falling 双边沿　　0->1 or 1->0　
+							  
+							  FunctionalState EXTI_LineCmd;   
+									使能/禁止　　相应的外部中断
+									ENABLE
+									DISABLE
+							  
+							}EXTI_InitTypeDef;
+				eg：key0---PA0---EXTI_Line0
+				
+				EXTI_InitTypeDef e;
+				e.EXTI_Line = EXTI_Line0|EXTI_Line2|EXTI_Line3|EXTI_Line4;
+				e.EXTI_LineCmd = ENABLE;
+				e.EXTI_Mode = EXTI_Mode_Interrupt;
+				e.EXTI_Trigger = EXTI_Trigger_Rising_Falling; //双边沿
+				EXTI_Init(&e);
+	
+	
+			--------------------------
+			
+						IT: InTerrupt中断
+						EXTI_GetITStatus用来获取EXTI_Line指定的外部中断
+						的中断的状态:
+								SET: 产生了中断
+								RESET: 没产生中断
+				ITStatus EXTI_GetITStatus(uint32_t EXTI_Line);
+							EXTI_Line: 指定要获取中断状态的外部中断线编号
+								如: 
+									EXTI_Line0 -> EXTI0
+									EXTI_Line2 -> EXTI2
+									...
+						返回值:
+							SET 1  产生了中断
+							RESET 0 没产生
+				eg：在中断响应函数中使用
+				if (EXTI_GetITStatus( EXTI_Line0) == SET)
+						{中断处理}
+			－－－－－－－－－－－－－－－－－－－－－
+				EXTI_ClearITPendingBit用来清掉相应的外部中断的
+					Pending标记。
+					在用户中断处理函数末尾(中断处理后)要把相应的中断pending
+					标识给清掉，否则会一直产生中断。
+			void EXTI_ClearITPendingBit(uint32_t EXTI_Line);
+			eg:
+			//clear IT Pending bit
+			EXTI_ClearITPendingBit(EXTI_Line0);
+			
+			还有一对CP：
+			FlagStatus EXTI_GetFlagStatus(uint32_t EXTI_Line);
+			void EXTI_ClearFlag(uint32_t EXTI_Line);
+			------------------------------------
+		
+	5.2  NVIC的控制
+		 NVIC_Init初始化一个指定的中断		 
+		 void NVIC_Init(NVIC_InitTypeDef* NVIC_InitStruct);
+				NVIC_InitStruc:指向初始化的结构体。
+				typedef struct
+				{
+				  uint8_t NVIC_IRQChannel; 
+						指定要初始化的中断通道(中断编号)
+						STM32固件库中，给每一个中断一个唯一的编号，
+						并且这个编号是用枚举(宏)来实现的，枚举名
+						格式如下:						
+							PPP_IRQn  -> 中断通道(中断编号), PPP外设中断名
+							如:
+								外部中断0
+									EXTI0_IRQn
+								串口0中断
+									USART0_IRQn
+								...					  
+					Priority: 优先级
+					NVIC允许用户给每一个中断通道的优先级的配置。每个中断的优先级
+					有4bits(0~15),数字越小，优先级越大。中断优先级要为两种:
+						抢占优先级: Pre-emption
+								决定是否可以抢占正在处理的中断，响应优先级更高的那个。						
+						中断子优先级: Sub
+								决定如果两个或以上的中断同时来，并且它们的抢占优先级相同，
+								此时，先处理中断子优先级高的中断。
+				  
+				  uint8_t NVIC_IRQChannelPreemptionPriority;  　//抢占优先级
+				  uint8_t NVIC_IRQChannelSubPriority; 		//中断子优先级
+
+				  
+				  FunctionalState NVIC_IRQChannelCmd;   
+								ENABLE : 使能中断
+								DISABLE :禁止中断
+				} NVIC_InitTypeDef;
+				
+				eg：NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);	
+					NVIC_InitTypeDef n;
+					n.NVIC_IRQChannel = EXTI0_IRQn; // PPP_IRQn
+					n.NVIC_IRQChannelCmd = ENABLE;
+					n.NVIC_IRQChannelPreemptionPriority = 2;
+					n.NVIC_IRQChannelSubPriority = 2;
+					NVIC_Init(&n);
+				
+				
+			中断优先级占4bits,其中抢占优先级x位和子优先级y位（x + y = 4）						
+			void NVIC_PriorityGroupConfig(uint32_t NVIC_PriorityGroup);
+					NVIC_PriorityGroup_0:  x(抢占优先级)占0bits 
+					NVIC_PriorityGroup_1:  x(抢占优先级)占1bits 
+					NVIC_PriorityGroup_2:  x(抢占优先级)占2bits 
+					NVIC_PriorityGroup_3:  x(抢占优先级)占3bits 
+					NVIC_PriorityGroup_4:  x(抢占优先级)占4bits 
+	
+	eg:
+	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);	
+	NVIC_InitTypeDef n;
+	n.NVIC_IRQChannel = EXTI0_IRQn; // PPP_IRQn
+	n.NVIC_IRQChannelCmd = ENABLE;
+	n.NVIC_IRQChannelPreemptionPriority = 2;
+	n.NVIC_IRQChannelSubPriority = 2;
+	NVIC_Init(&n);
+	
+	
+6. 作业:
+		（1）用中断的方式实现按键点灯（要求：按下点亮松开熄灭。）
+		key0(PA0,EXTI_Line0)-led0(PF9) D1
+		key1(PE2,EXTI_Line2)-led1(PF10) D2
+		key2(PE3,EXTI_Line3)-led2(PE13) D3
+		key3(PE4,EXTI_Line4)-led3(PE14) D4
+		
+		程序说明：
+		led_init()(已有)
+		编写sf_key.c/h
+		包括
+		key_init()0-4……，
+		EXTI0_IRQHandler()
+		EXTI2_IRQHandler()
+		EXTI3_IRQHandler()
+		EXTI4_IRQHandler()
+		按键的中断处理程序，一定要在core\startup_stm32f40xx.s 的中断向量表中
+		核实中断处理函数的名称与向量表一致		
+		（2）自行测试优先级的实现
+		
+//按键key0(EXTI0)的一个中断处理函数
+void EXTI0_IRQHandler(void)
+{
+	//IRQ? EXTI LINE0 -SET ?	
+	if(SET==EXTI_GetITStatus(EXTI_Line0))
+	{
+		delay(100);
+	//DO
+		if(Bit_RESET==GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_0))
+		{
+			GPIO_ResetBits(GPIOF, GPIO_Pin_9);
+		}
+		else
+		{
+			GPIO_SetBits(GPIOF, GPIO_Pin_9);
+		}
+	
+	//CLEAR
+	EXTI_ClearITPendingBit(EXTI_Line0);
+	}
+}

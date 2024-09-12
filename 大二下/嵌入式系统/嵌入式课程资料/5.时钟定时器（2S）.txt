@@ -1,0 +1,290 @@
+引言：接着介绍定时器
+(2) 基本定时器 (TIM6, TIM7)
+		只有时基单元
+		无输入输出引脚
+		计数器只有16bits,而且只支持递增模式
+(3) 通用定时器	
+		TIM2~TIM5
+		16bits(TIM3,TIM4)或32bits(TIM2,TIM5)计数器，可以配置为
+		递增，递减，先递增后递减(0->N->0)的模式		
+		多达4个独立通道，可用于：
+			输入捕获
+			输出比较
+			PWM生成(边沿或中心对齐模式)
+			单脉冲模式输出
+			
+		TIM9~TIM14
+			16bits自动加载递增计数器
+			2个独立通道，可用于：
+				输入捕获
+				输出比较
+				PWM生成(边沿或中心对齐模式)
+				单脉冲模式输出
+				实例：TIM13
+					
+	(4) 高级定时器 (TIM1, TIM8)
+		16bits计数器，可以可以配置为
+		递增，递减，先递增后递减(0->N->0)的模式
+		多达4个独立通道，可用于：
+			输入捕获
+			输出比较
+			PWM生成(边沿或中心对齐模式)
+			单脉冲模式输出
+		“高级”
+		重复计数器(TIMx_RCR) : Repeation Counter Register
+			如果使用重复计数，则当计数器重复溢出的次数达到设定的
+			重复计数器的值+1时，才会产生溢出事件/中断。
+			
+			如果不用重复计数器，在每次计数器溢出时都会产生事件/中断。
+			这个时候，和通用定时器没有区别。			
+		....
+		信号处理方面有高级的地方...
+		
+		
+	(5) 看门狗  watch dog
+	a.问题的引入
+	“死机”：用户任何操作都没有反应，必须掉电重启
+	掉电重启 -> 当你的程序出现"死机"/"跑飞了"这种情况时
+				一种处理方式
+	这就是：“看门狗”复位		
+		看门狗用于程序"死机、跑飞"时，自动复位系统。
+		
+	b.看门狗本质就是一个定时器，
+	这个定时器有一个输出引脚，直接连到cpu的复位引脚上去。
+	
+	c.看门狗的操作
+	配置好后，就会从一个值N -   0 => cpu复位。	
+	(1) 当你的程序"死机、跑飞了"，　看门狗　减至0时，就会复位系统	
+	(2) 当你的程序正常情况下，看门狗　减至0时，也会复位系统　所以----
+		当你程序正常情况，就要周期性地“喂狗”
+			把定时器的值，赋值一个比较大的值。
+			让他不要减至0!!!
+	d.怎么喂狗：
+		Thread Mode下(用户程序的业务逻辑中)，周期性的喂狗。	
+	
+		
+	4.例子: 用STM32固件库来操作定时器
+	
+	(1) 配置定时器的通道(输入/输出)引脚
+		TIM通道引脚是由GPIO口来复用的
+		1.1 RCC_AHB1... =>使能GPIO分组的时钟
+		RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOF, ENABLE);
+		1.2 GPIO_Init   => 配置GPIO引脚的功能　　 AF: Alternate Function 复用功能
+		B.GPIO_Mode = GPIO_Mode_AF;
+		1.3 选择GPIO口具体的复用功能
+			GPIO_PinAFConfig
+			void GPIO_PinAFConfig(GPIO_TypeDef* GPIOx, 
+					uint16_t GPIO_PinSource, 
+					uint8_t GPIO_AF);
+				GPIOx: 指定具体的GPIO分组
+				GPIO_PinSource:指定具体的GPIO引脚编号
+				GPIO_AF: 指定具体的复用功能　	
+			
+	(2) 定时器时基单元(Time Base Unit)配置
+		2.1  RCC_APBx => 使能定时器的时钟
+		RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM13, ENABLE);
+		2.2  TIM_TimeBaseInit  => 初始化定时器的时基单元
+			void TIM_TimeBaseInit(TIM_TypeDef* TIMx, 
+					TIM_TimeBaseInitTypeDef* TIM_TimeBaseInitStruct);
+				TIMx: 指定要初始化的定时器，如:
+							TIM1, TIM2,....				
+				TIM_TimeBaseInitStruct: 指向要初始化的结构体。
+					
+				typedef struct
+				{
+				  uint16_t TIM_Prescaler;         
+						指定定时器的预分频
+						TIM_CLK: 计数器(定时器)的时钟
+						
+						TIM_CLK = Fin(定时器的输入时钟频率)/ (TIM_Prescaler + 1)
+						
+						if APBx prescaler == 1 则:
+							Fin = APBx BUS clock
+						else
+							Fin = APBx Bus clock * 2
+							
+						TIM13 在总线APB1上，
+							APB1 prescaler == 4
+							APB1 BUS clock = 168M/4 = 42M
+						so
+							Fin = 42M*2 = 84M
+							假设 fin=84000000/8400=10Khz
+							t.TIM_Prescaler = 8399		
+						
+				  				  
+				  uint16_t TIM_CounterMode;      
+							指定计数器模式(递增，递减，先递增后递减 ....)
+							TIM_CounterMode_Up  递增 0 --> N
+							TIM_CounterMode_Down 递减　N --> 0
+									
+										0 ---> N --> 0
+										0 ---> n-1 -> 0
+										0 ----> N + 1 --> 0
+										有一点细微的区别，大家可以查看datasheet
+							TIM_CounterMode_CenterAligned1 中心对齐模式1
+							TIM_CounterMode_CenterAligned2 中心对齐模式2
+							TIM_CounterMode_CenterAligned3 中心对齐模式3
+							
+							eg: t.TIM_CounterMode = TIM_CounterMode_Down;
+				  
+				  uint32_t TIM_Period;          
+							指定自动加载的起始值。　N值，　定时器周期。
+				  
+				  uint16_t TIM_ClockDivision;     
+							指定输入捕获阶段的数字滤波的采样频率，　分频值
+							可以是如下值:
+								TIM_CKD_DIV1  数字滤波采样频率=定时器频率　
+								TIM_CKD_DIV2　数字滤波采样频率=定时器频率*2
+								TIM_CKD_DIV4  数字滤波采样频率=定时器频率*4	
+				  
+				  
+				  uint8_t TIM_RepetitionCounter;  
+							计数器溢出重复次数，只有高级定时器TIM1和TIM8才有。
+							计数器溢出重复次数是指只当把“计数器”溢出的次数=重复的次数时
+								才会产生一个定时器的溢出中断。
+								eg: t.TIM_RepetitionCounter = 0; 
+	
+				} TIM_TimeBaseInitTypeDef; 
+		
+	(3) 定时器输出通道/输入通道配置
+	(3.1) TIM_OC1Init:
+				Output Channel 1：　输出通道1
+			void TIM_OC1Init(TIM_TypeDef* TIMx, 
+					TIM_OCInitTypeDef* TIM_OCInitStruct);
+				TIMx: 指定定时器，如: TIM1, TIM2, ...
+				TIM_OCInitStruct: 指向OC1的初始化结构体
+				typedef struct
+					{
+					  uint16_t TIM_OCMode;       
+							指定输出通道的模式
+							TIM_OCMode_Timing                 
+								输出比较寄存器(TIMx_CCRn)与计数器(TIMx_CNT)的比较不影响输出
+							
+							TIM_OCMode_Active                 
+								当TIMx_CNT = TIMx_CCRn时，输出高电平							
+							
+							TIM_OCMode_Inactive               
+								当TIMx_CNT = TIMx_CCRn时，输出低电平
+							
+							TIM_OCMode_Toggle                  
+								toggle:翻转
+								当TIMx_CNT = TIMx_CCRn时，翻转电平
+							
+							TIM_OCMode_PWM1               
+								当TIMx_CNT < TIMx_CCRn时，　输出高电平
+								否则，输出低电平
+								eg:t_oc.TIM_OCMode = TIM_OCMode_PWM1;
+							
+							TIM_OCMode_PWM2     
+								当TIMx_CNT < TIMx_CCRn时，　输出低电平
+								否则，输出高电平						
+					  
+					  
+					  uint16_t TIM_OutputState;   
+							输出信号 状态(enable/disable)
+							TIM_OutputState_Disable 不输出信号
+							TIM_OutputState_Enable  输出信号
+							eg:t_oc.TIM_OutputState = TIM_OutputState_Enable;
+													  
+					  
+					  uint16_t TIM_OutputNState;  
+							互补输出信号的　状态(enable/disable)
+							"互补输出信号" 只针对高级定时器 TIM1, TIM8
+							TIM_OutputNState_Disable 不输出互补信号
+							TIM_OutputNState_Enable 　输出互补信号
+					  
+					  uint32_t TIM_Pulse;         
+							指定要比较的值
+							eg: t_oc.TIM_Pulse = f*0.3;	
+				
+					  uint16_t TIM_OCPolarity;   
+						Polarity：　极性
+							指定输出极性
+						TIM_OCPolarity_High: 高电平为有效电平
+						TIM_OCPolarity_Low: 低电平有效电平
+						 eg:t_oc.TIM_OCPolarity = TIM_OCPolarity_High;
+					  
+					  uint16_t TIM_OCNPolarity;   
+							指定互补输出信号的极性，仅针对TIM1,TIM8
+					  
+					  
+					  uint16_t TIM_OCIdleState;   
+							Idle: 空闲。
+							输出引脚在空闲状态的输出，仅针对TIM1和TIM8
+					   					  
+					  uint16_t TIM_OCNIdleState;  
+							互补输出引脚在空闲状态的输出，仅针对TIM1和TIM8	
+
+					  } TIM_OCInitTypeDef;
+
+		(3.2)	使能/禁止预装载 
+			TIM_OC1PreloadConfig
+		void TIM_OC1PreloadConfig(TIM_TypeDef* TIMx, uint16_t TIM_OCPreload);
+					TIM_OCPreload: 
+							TIM_OCPreload_Enable　每次自动加载比较寄存器的值
+							TIM_OCPreload_Disable	不自动加载比较寄存器的值
+			是否使能　每次自动加载比较寄存器
+			
+	(4) 定时器使能
+		(4.1) 使能自动加载 ARR,计数值
+			void TIM_ARRPreloadConfig(TIM_TypeDef* TIMx, FunctionalState NewState);
+				TIMx:指定定时器，如:TIM1, TIM2,...
+				NewState:
+						ENABLE
+						DISABLE
+				
+		(4.2) TIM_Cmd
+		
+			void TIM_Cmd(TIM_TypeDef* TIMx, FunctionalState NewState);
+				TIMx:指定定时器，如:TIM1, TIM2,...
+				NewState:
+						ENABLE
+						DISABLE
+	初始化参考代码：
+void beep_init(int n)
+{	
+	//0.clk enable GPIOF-AHB1
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOF, ENABLE);
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM13, ENABLE);
+
+	//1.GPIOF8 MODE-AF--TIM13
+	GPIO_InitTypeDef GPIO_InitStruct;
+	GPIO_InitStruct.GPIO_Mode		=GPIO_Mode_AF;
+	GPIO_InitStruct.GPIO_OType		=GPIO_OType_PP;
+	GPIO_InitStruct.GPIO_Pin		=GPIO_Pin_8;
+	GPIO_InitStruct.GPIO_PuPd		=GPIO_PuPd_NOPULL;
+	GPIO_InitStruct.GPIO_Speed		=GPIO_Speed_50MHz;	
+	GPIO_Init(GPIOF, &GPIO_InitStruct);
+	GPIO_PinAFConfig(GPIOF,GPIO_PinSource8, GPIO_AF_TIM13);
+
+	//2.TIM13-TIMEBASE
+	TIM_TimeBaseInitTypeDef TIM_TimeBaseInitStruct;
+	TIM_TimeBaseInitStruct.TIM_Prescaler		=8399;//84M---10K 
+	TIM_TimeBaseInitStruct.TIM_CounterMode		=TIM_CounterMode_Down;
+	TIM_TimeBaseInitStruct.TIM_Period			=n;	  
+	TIM_TimeBaseInit(TIM13, &TIM_TimeBaseInitStruct);
+
+	//3.TIM13 OUT CH---1
+	TIM_OCInitTypeDef  TIM_OCInitStruct;
+	TIM_OCInitStruct.TIM_OCMode		=TIM_OCMode_PWM1;
+	TIM_OCInitStruct.TIM_OutputState=TIM_OutputState_Enable;
+	TIM_OCInitStruct.TIM_OCPolarity	=TIM_OCPolarity_High;
+	TIM_OCInitStruct.TIM_Pulse		=0.3*n;	
+	TIM_OC1Init(TIM13, &TIM_OCInitStruct);
+	TIM_OC1PreloadConfig(TIM13, TIM_OCPreload_Enable);
+
+	//4.TIM13-ENABLE
+	TIM_ARRPreloadConfig(TIM13, ENABLE);
+	TIM_Cmd(TIM13, ENABLE);
+}
+	
+	
+	作业:
+		1.TIM13输出一个PWM波－－－〉beep 产生一个音符的效果
+		
+		2.利用蜂鸣器产生音乐效果。		
+		void buzzer_init(int);
+		void music_fun(void);
+		
+		3.按键播放音乐
+		

@@ -1,0 +1,217 @@
+﻿问题：直接写寄存器编程的感觉如何？
+今天开始基于固件库（ST提供的STM32）
+notepad：笔记
+source insight 4.0:写代码 （自动补全）
+编译运行KEIL
+首先 装固件库、source insight
+任务：基于固件库编程 实现流水灯
+
+一、STM32官方固件库
+GPIO固件库函数
+总线APB/AHB 不同外设连接不同总线（AHB1,AHB2,AHB3,APB1,APB2），GPIO--->AHB1
+（1）使能GPIO分组的时钟
+	RCC_AHB1PeriphClockCmd(uint32_t RCC_AHB1Periph, FunctionalState NewState)
+	uint32_t RCC_AHB1Periph: 连接到AHB1上的外设编号
+					RCC_AHB1Periph_GPIOF
+					RCC_AHB1Periph_GPIOE
+					可以同时使能或禁止的就用|
+	FunctionalState NewState:ENABLE or DISABLE
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOF|RCC_AHB1Periph_GPIOE,ENABLE);	
+	注意：RCC_总线名一定要和外设编号要对应.
+(2)GPIO初始化
+	***_Init:***表示所有外设名 GPIO_Init
+	GPIO_Init(GPIO_TypeDef * GPIOx, GPIO_InitTypeDef * GPIO_InitStruct)
+	GPIO_TypeDef * GPIOx:分组的寄存器地址  GPIOF
+	GPIO_InitTypeDef *GPIO_InitStruct定义如下：
+	GPIO_InitStruct：结构体指针  
+	typedef struct
+{
+  uint32_t GPIO_Pin;  //要初始化的引脚号 GPIO_Pin_9,GPIO_Pin_10        
+
+  GPIOMode_TypeDef GPIO_Mode;    //GPIO四种模式(GPIO_Mode_OUT) 
+					GPIO_Mode_IN   
+					GPIO_Mode_OUT 
+					GPIO_Mode_AF   
+					GPIO_Mode_AN   
+  GPIOSpeed_TypeDef GPIO_Speed; //GPIO 速率 GPIO_Speed_50MHz 
+					GPIO_Speed_2MHz     
+					GPIO_Speed_25MHz   
+					GPIO_Speed_50MHz   
+					GPIO_Speed_100MHz
+
+  GPIOOType_TypeDef GPIO_OType;  //输出类型  GPIO_OType_PP
+					GPIO_OType_PP , GPIO_OType_OD 
+
+  GPIOPuPd_TypeDef GPIO_PuPd;   //  上拉下拉设置 GPIO_PuPd_NOPULL 
+					GPIO_PuPd_NOPULL 
+					GPIO_PuPd_UP     
+					GPIO_PuPd_DOWN  
+}GPIO_InitTypeDef;
+例子：初始化PF\PE
+GPIO_InitTypeDef  P;
+		P.GPIO_Pin= GPIO_Pin_9|GPIO_Pin_10;
+		P.GPIO_Mode = GPIO_Mode_OUT;
+		P.GPIO_Speed = GPIO_Speed_50MHz;
+		P.GPIO_OType = GPIO_OType_PP;
+		P.GPIO_PuPd = GPIO_PuPd_NOPULL ;	
+		GPIO_Init(GPIOF,&P); 
+		
+		p.GPIO_Pin= GPIO_Pin_13|GPIO_Pin_14;
+		GPIO_Init(GPIOE,&P); 
+	特别注意这里是&P	
+		
+ KEY0-->PA0初始化 rj_key.c/h
+ key_init()
+ GPIO_InitTypeDef P;
+		P.GPIO_Pin= GPIO_Pin_0;
+		P.GPIO_Mode = GPIO_Mode_IN;
+		P.GPIO_Speed = GPIO_Speed_50MHz;
+		//P.GPIO_OType = GPIO_OType_PP;
+		P.GPIO_PuPd = GPIO_PuPd_NOPULL;	
+		GPIO_Init(GPIOA,&P); 
+		
+(3)置位/复位/取反函数
+	置位
+	void	GPIO_SetBits(GPIO_TypeDef * GPIOx, uint16_t GPIO_Pin)
+	GPIO_TypeDef * GPIOx:指定GPIO分组 GPIOF 
+	uint16_t GPIO_Pin:引脚号
+	GPIO_SetBits(GPIOF, GPIO_Pin_9|GPIO_Pin_10)
+	GPIO_SetBits(GPIOE, GPIO_Pin_13|GPIO_Pin_14)
+	
+	函数内部执行：GPIOx->BSRRL = GPIO_Pin;
+	
+	复位
+	void	GPIO_ResetBits(GPIO_TypeDef * GPIOx, uint16_t GPIO_Pin)
+	
+	取反
+	void	GPIO_ToggleBits(GPIO_TypeDef * GPIOx, uint16_t GPIO_Pin)
+	
+	函数内部执行：GPIOx->ODR ^= GPIO_Pin;
+	
+	GPIO_ToggleBits(GPIOF, GPIO_Pin_9)
+	
+	
+(4)GPIO引脚的读写
+READ:
+	uint16_t	GPIO_ReadInputData(GPIO_TypeDef * GPIOx)//读一个分组的所有引脚的电平状态
+	GPIOx:指定GPIO分组 GPIOA,
+	返回值：所有引脚的电平状态
+	uint16_t value=GPIO_ReadInputData(GPIOA);
+	if(value&0x01)
+	//没有按键
+	else
+	//led_loop()
+	
+	uint8_t		GPIO_ReadInputDataBit(GPIO_TypeDef * GPIOx, uint16_t GPIO_Pin)
+	//读一个分组的指定引脚的电平状态
+	uint8_t value=GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0);
+	if(value&0x01)
+	//没有按键
+	else
+	//led_ctrl()
+	
+
+WRITE
+	void	GPIO_Write(GPIO_TypeDef * GPIOx, uint16_t PortVal)
+	//MCU给指定GPIO分组(GPIOx)的所有引脚（16个）输出一个电平状态
+	uint16_t PortVal:16bit的数值
+		
+	例子：led0点灯 PF9
+	uint16_t value=GPIO_ReadInputData(GPIOF);
+	value &= ~(1<<9);
+	GPIO_Write(GPIOF,value);
+	
+	void	GPIO_WriteBit(GPIO_TypeDef * GPIOx, uint16_t GPIO_Pin, BitAction BitVal)
+	BitAction BitVal:Bit_Reset 0		Bit_Set 1
+	GPIO_WriteBit(GPIOF, GPIO_Pin_9,Bit_Reset )
+	
+	led_ctrl(led_n)
+	case LED1:
+		GPIO_WriteBit(GPIOF, GPIO_Pin_9,Bit_Reset );
+		GPIO_WriteBit(GPIOF, GPIO_Pin_10,Bit_Set );
+		GPIO_WriteBit(GPIOE, GPIO_Pin_13,Bit_Set );
+		GPIO_WriteBit(GPIOE, GPIO_Pin_14,Bit_Set );
+		
+	换一个写法：
+	case 1：
+		GPIO_ResetBits(GPIOF, GPIO_Pin_9);
+		GPIO_SetBits(GPIOF, GPIO_Pin_10);
+		GPIO_SetBits(GPIOE, GPIO_Pin_13|GPIO_Pin_14);
+	
+	
+	
+	作业：
+	（1）用STM32固件库实现流水灯
+			led.c/led.h
+			led.h
+			条件编译 函数申明led_init(),led_ctrl(),delay(),led_loop()
+			led.c(led_init(),led_ctrl(),delay(),led_loop())
+			
+			这些文件是SI中写的，请同步到keil 工程文件夹下的src中。然后在KEIL工程中加入
+			就可以编译了
+			
+			main.c（用keil工程中的）
+			注意要加头文件，要写调用代码。
+			
+	（2）实现一个简单的按键点灯（流水灯）
+	     按下KEY0 	S1 PA0,启动流水灯
+		 
+		 
+	
+	程序怎么写：
+	led.c/led.h
+	led.c(led_init(),led_ctrl())
+	key.c/key.h
+	key.c(key_init(),key_check())
+	main.c
+	(delay(),调用led_init(),key_init(),key_check()  )
+	
+	
+	综合作业：
+	STM32F407开发板上有S1-S4四个按键，自行设计一个综合程序：
+	实现按键控制led，蜂鸣器等外围设备。
+	建议程序框架：
+	sf_led.h/led.c(led_init(),led-ctrl-loop,delay())
+	sf_key.h/key.c(key_init(),key_check())
+	S1-KEY0-PA0 S2-PE2 S3-PE3 S4-PE4 MODE IN 按下 0--MCU  没按 1---MCU  
+	S1-LED_LOOP
+	key_check()
+	{
+	if(bit_reset==GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0))
+	{led_loop();}
+	if(bit_reset==GPIO_ReadInputDataBit(GPIOE, GPIO_Pin_2))
+	{1-->PF8;}	
+	
+	sf_beep.h/beep.c(beep_init()) beep-PF8? MODE OUT 1--响 0--不响
+	main.c(初始化三个，while（key_check()）)
+	main.h(三个h文件)
+	
+			
+	也许你会用到的函数：
+	取反
+	void	GPIO_ToggleBits(GPIO_TypeDef * GPIOx, uint16_t GPIO_Pin)
+	
+	函数内部执行：GPIOx->ODR ^= GPIO_Pin;
+	
+	GPIO_ToggleBits(GPIOF, GPIO_Pin_9)
+	
+肯定会用到的函数：	
+	
+GPIO引脚的读写
+READ:
+	
+	uint8_t		GPIO_ReadInputDataBit(GPIO_TypeDef * GPIOx, uint16_t GPIO_Pin)
+	//读一个分组的指定引脚的电平状态
+	uint8_t value=GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0);
+	
+	
+	
+	key.h----led.h
+	
+	
+	
+	}
+	
+	
+
+

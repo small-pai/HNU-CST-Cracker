@@ -1,0 +1,325 @@
+﻿0. 问题的引入
+	LED灯原理
+		LED0给它一个低电平，灯就可以亮
+		LED0给它一个高电平，灯就会灭
+				
+	这些引脚最终是接入到MCU的某个引脚(GPIO)上去，
+	控制LED灯或其他，可以在MCU上面写程序去控制这些引脚
+	……。
+	D1-PF9,D2-PF10,D3-PE13,D4-PE14
+	
+1.	GPIO口
+	General Purpose Input/Output  通用功能的输入输出
+	GPIO 引脚(GPIO pin)从芯片内部引出一根功能复用的口线(电线)，可以配置
+	成不同的功能，如:输入功能，输出功能，其他复用功能等。	
+	MCU控制"一切"，通过它的引脚(Pins)来实现的.
+	
+	STM32F4xx共用144个GPIO引脚，分为9组，记为GPIOA,GPIOB, GPIOC,GPIOD,GPIOE,
+	GPIOF,GPIOG,GPIOH,GPIOI.每组管理16个引脚，编号从0~15,如：
+	GPIOF 这一组的16个引脚，分别记为：GPIOF0,GPIOF1,GPIOF2,..., GPIOF15
+	其他组类似。
+		?引脚个数：	9 x 16 = 144
+		简写方式：			
+		GPIOF9 -> PF9			GPIOE10 -> PE10		
+		这些GPIO都是功能复用的，有不同的寄存器组来配置它们。
+		每组GPIO地址分配如下:			
+			GPIOA  0x4002 0000 ~ 0x4002 03ff	1024KB
+			GPIOB  0x4002 0400 ~ 0X4002 07FF
+			GPIOC  0x4002 0800 - 0x4002 0BFF
+			GPIOD  0x4002 0C00 - 0x4002 0FFF
+			GPIOE  0x4002 1000 - 0x4002 13FF 今天用
+			GPIOF  0x4002 1400 ~ 0x4002 17FF 今天用
+			GPIOG  0x4002 1800 - 0x4002 1BFF
+			GPIOH  0x4002 1C00 - 0x4002 1FFF
+			GPIOI  0x4002 2000 - 0x4002 23FF
+	
+2. STM32F4xx GPIO内部结构原理
+		datasheet  -> 数据手册		
+	请参考《图示》或datasheet		
+	每个GPIO引脚在芯片内部都可以配置成如下功能:
+		输入功能 Input
+			CPU可以获取该GPIO引脚的外部输入的一个电平状态。输入功能也有几种模式:
+			(1) 模拟输入 Input Analog（GPIO_MODE_AIN）
+				接收外部模拟信号（如变化的电压值）,
+				然后交给片上外设模块（如ADC）模数转换。
+			
+			(2)悬空输入　Input Floating （GPIO_MODE_IN_FLOATING）
+				内部不接上拉/下拉电阻，输入引脚状态完全由外部电路所决定的。
+				CPU能够通过读取GPIO的状态知道I/O的电平状态。
+				
+			(3)下拉输入 Input Pull-Down（GPIO_MODE_IPD）
+				内部接一个下拉电阻。
+				作用：引脚在悬空的状态或外部电路没有输出电平时，CPU读取到的为低电平。			
+				
+			(4)上拉输入Input Pull-Up（GPIO_MODE_IPD）
+				内部接一个上拉电阻。
+				作用：引脚在悬空的状态或外部电路没有输出电平时，CPU读取到的为高电平。
+				
+		输出功能　Output
+			CPU往GPIO引脚输出一个电平状态。输出功能也有几种模式:
+			(1)输出开漏 Open-Drain (GPIO_MODE_Out_OD) 		见图	
+				不输出电压。
+				cpu write 0，接地引脚，输出就是低电平。
+				cpu write 1，输出电平受上拉下拉电阻决定(悬空的状态)				
+				
+			(2)	输出推挽( Push-Pull): (GPIO_MODE_Out_PP)  今天用
+				作用：增强驱动力可以输出一个高、低电平，其原理见图			
+				cpu write 1 -> 引脚输出高电平
+				cpu write 0 -> 引脚输出低电平				
+					
+		
+		复用功能：　Alternate Function GPIO_MODE_AF
+			复用功能是指GPIO引脚用作其它的功能使用，如: I2C,UART,SPI,CAN等。
+			每个GPIO口都可以配置成多达16种复用功能，记为AF0,AF1,AF2,...,AF15。
+			具体哪个GPIO可以配置成哪种复用功能，需要看原理图和datasheet.	
+			
+		说明：1.STM32F4xx每个GPIO内部都有一个上拉和下拉电阻(图M4的上下拉电阻)，
+			enable/disable应用场景决定。
+			2.每个GPIO的操作都是通过GPIO控制器的寄存器来控制。
+		
+3. STM32F4xx GPIO寄存器说明
+		每个通用 I/O 端口包括 4 个 32 位配置寄存器
+		（GPIOx_MODER、GPIOx_OTYPER、GPIOx_OSPEEDR 和 GPIOx_PUPDR）、
+		2 个 32 位数据寄存器（GPIOx_IDR 和 GPIOx_ODR）、
+		1 个 32 位置位/复位寄存器 (GPIOx_BSRR)、
+		1 个 32 位锁定寄存器 (GPIOx_LCKR) 和
+		2 个 32 位复用功能选择寄存器（GPIOx_AFRH 和 GPIOx_AFRL）。
+	(1) GPIOx_MODER	
+			模式选择寄存器，寄存器地址偏移为 0x00.
+			GPIOE_MODER = 0x40021000 + 0x00
+			GPIOF_MODER = 0x40021400 + 0x00
+			
+		该寄存器用来控制x(x=A,B,C,...I)组GPIO的16个引脚的模式，
+		每个pin都有4种模式，每个pin需要2bits来配置。编号为
+		y(y=0,1,2,...,15)的GPIO引脚在该寄存器的bit位置为:
+			GPIOx_MODER[2y+1:2y], 具体配置如下:				
+				GPIOx_MODER[2y+1:2y]			模式
+					00							通用输入模式　input
+					01							通用输出模式　output  今天用
+					10							复用功能模式　Alternate Function
+					11							模拟输入模式　input analog
+	
+		例子：
+			D1(PF9) 需要把它配置成输出模式，具体代码如下(C语言/汇编)：
+					GPIOF_MODER[19:18]:  01
+				GPIOF_MODER 地址: 	0x4002 1400 + 0x00
+				
+				任务：xxxxxxx01xxxxxx [19:18] 1-bit19-18 clear 2bit18 set 1
+				
+				程序编码说明
+				1.volatile:（每次存取都往该的实地址存取最新数据）
+				允许除了程序之外的比如硬件来修改该地址的内容，
+				访问该数据任何时候都会直接访问该地址处内容，
+				也就是说通过cache提高访问速度的优化被取消。
+				2.	关于数据类型	unsigned long就是U32
+				volatile unsigned long *p  = (volatile  unsigned long *)0x40021400;
+				unsigned long value = *p;	
+				3.	完成GPIOF_MODER[19:18]:  01		
+				value  &= ~(0x3 << 18);
+							19:18  => xxxxx00xxxxxx
+				value |= 1 << 18;
+							19:18  => xxxxx01xxxxxx
+				*p = value;
+				汇编会写吗？
+				－－－－－－
+				LDR R0, =0x40021400
+				LDR R1, [R0]
+				BIC R1, R1, #(0x3 << 18)
+				ORR R1, R1, #1 << 18
+				STR R1, [R0]
+		
+	(2)GPIOx_OTYPER
+		OTYPER: Output Type Register  输出类型寄存器
+		输出类型寄存器，寄存器地址偏移为 0x04
+		该寄存器用来控制x(x=A,B,C,...I)组的16个GPIO口的输出类型(PP/OD)，
+		每个GPIO引脚，占1bit,编号为y(y=0,1,2,...,15)的引脚在该寄存器
+		的bit位置为: GPIOx_OTYPER[y]. 具体配置如下:
+				GPIOx_OTYPER[y]			输出类型
+					0						输出推挽(PP)
+					1						输出开漏(OD)
+				PP:	1 -> 输出高电平			0 -> 输出低电平
+				OD:	0 -> 引脚内部接地		1 -> 引脚内部悬空，状态由外部电路决定
+					
+		例子:
+			PF9的输出类型设置为 PP
+			GPIOf_OTYPER的地址为: 0x40021400 + 0x04
+				GPIOf_OTYPER[9] <- 0				
+			volatile unsigned long *p = (volatile unsigned long*)0x40021404;
+			unsigned long value = *p;			
+			value &= ~(1 << 9);			
+			*p = value;
+			
+	(3) GPIOx_OSPEEDR
+		OSPEEDR: Output Speed Rgister 输出速率寄存器
+		寄存器偏移地址为: 0x08		
+		该寄存器用来控制x(x=A,B,C,...,I)组的16个GPIO的输出速率，
+		每个GPIO口占2bits。编号为y(y=0,1,2,...,15)的GPIO口在该寄存器的bit位为
+		GPIOx_OSPEEDR[2y+1:2y], 具体输出速率为:
+				GPIOx_OSPEEDR[2y+1:2y]			输出速率
+					00								2 MHZ(低速)
+					01								25 MHZ
+					10								50 MHZ
+					11							30pf（电容）时为100MHZ
+												15pf时为80MHZ
+					
+	(4) GPIOx_PUPDR
+		Pull-Up Pull-Down Register上拉下拉寄存器。偏移地址为 0x0C
+		该寄存器用来控制x(x=A,B,C,...,I)组的16个GPIO引脚的上下拉电阻选择。
+		每个GPIO引脚占2bits.编号为y(y=0,1,2,...,15)的GPIO口在该寄存器的bit位为
+			GPIOx_PUPDR[2y+1:2y], 具体上下拉情况为:
+				GPIOx_PUPDR[2y+1:2y]　　　　上下拉情况
+					00						无上拉，无下拉
+					01						上拉
+					10						下拉
+					11						保留
+				
+	(5) GPIOx_IDR
+		Input Data Register输入数据寄存器，偏移地址为 0x10.
+		当GPIO引脚配置成输入模式时，CPU可以读取这个寄存器的值（来自外部电路的值）
+			
+		该寄存器用来表示x(x=A,B,C,...,I)组的16个GPIO口的输入值，其中位31:16
+		保留。位IDR[15:0]表示相应的GPIO引脚的输入状态，只读。　
+				IDR[y]
+				 0		低电平				 1 		高电平
+							
+	(6) GPIOx_ODR
+		Output Data Register输出数据寄存器，偏移地址为 0x14
+		当GPIO引脚配置成输出模式时，CPU可以往该寄存器写0引脚输出低电平。
+		写1在推挽方式下是引脚输出是高电平，开漏状态下外部电路决定。			
+		该寄存器用来表示x(x=A,B,C,...,I)组的16个GPIO口的输出值，其中位31:16
+		保留。位ODR[15:0]表示相应的GPIO引脚的输出状态，只写。　
+				IDR[y]
+				0		低电平
+				1 		PP :高电平
+						OD : 悬空(外部电路决定)
+				
+	(7) GPIOx_BSRR
+		Bit Set/Reset  Register 端口位设置/复位寄存器.偏移地址为 0x18
+			Bit Set -> 1
+			Bit Reset -> 0		
+			
+		BSRR[31:16] :端口复位寄存器
+		BSRR[15:0]  :端口置位寄存器
+			例子：	PF9 -> 1  
+					GPIOf_ODR[9] -> 1	or	GPIOf_BSRR[9] -> 1
+					PF9 -> 0
+					GPIOf_ODR[9] -> 0	or	GPIOf_BSRR[25]->1
+			这个寄存器只写１，写0无效:
+			如果你对BSRR[15:0]写１,相应的GPIO引脚输出１
+			如果你对BSRR[31:16]写1,相应的GPIO引脚输出0
+			
+			当一个GPIO配置为输出类型时，无非就是写一个1,或者是写一个0
+			1  -> Bit Set
+			0  -> Bit Reset
+			
+		端口置位/复位寄存器，偏移地址为：0x18
+		
+		Bit Set (置位) : 输出一个1
+		Bit Reset(复位): 输出一个0 输出一个低电平，我们可以通过写1来实现。
+			
+		BSRR的存在，使得清掉某个输出位，可以通过写1来完成。	
+			
+		高位 31:16 为 BRy: Bit Reset,端口y复位bits.
+				往相应的bit写1,相应的GPIO口就输出低电平。复位。
+				如果PE10　置0,
+					GPIOE_BSRR[10+16] <- 1　
+		低位 15:0 为 BSy: Bit Set,端口y置位bits　	
+	(8)GPIOx_LCKR: Lock 上锁。		略。	
+	(9)  GPIOx_AFRL   偏移量 0x20
+	(10) GPIOx_AFRH  偏移量　0x24
+			AFR: Alternate Function Register
+				复用功能寄存器。
+		每一个GPIO口可以复用多达16个复用功能，每一个GPIO口就需要
+		4bits. 一组GPIO口(16个GPIO口)，就需要 16x4= 64bits,
+		所以复用功能寄存器就需要两个32bits的寄存器 GPIOx_AFRL,
+		GPIOx_AFRH		
+		编号 0...7 -> GPIOx_AFRL
+		编号 8...15 -> GPIOx_AFRH
+				AF0  0000
+				AF1	 0001
+				AF2  0010
+				...
+				AF15 1111				
+					AFx到底是复用何种功能，参照芯片手册。
+			例子：  PE10 -> AF13
+		   GPIOE_AFRH[11:8] 1101
+	
+4.作业:实现流水灯　(直接写寄存器方式)
+		根据原理图，用C编写代码
+			keil工程两个文件
+				start.s
+				led_reg.c（初始化、控制点灯，流水效果自己设计方案）
+				led_reg.h 
+				
+			流水灯时延：				
+					//0x666666
+				　void delay(int v)
+					{
+						while(v--);
+					}
+				
+		
+		提示:
+			
+			初始化：
+			(0) 使能GPIOx的分组的时钟
+				//enable GPIOF  GPIOE的时钟
+				volatile unsigned long * p = (volatile unsigned long *)0x40023830 ;
+				*p  |=  (1 << 5) | (1 << 4);
+				
+					GPIOE  bit4
+					GPIOF  bit5
+					...					
+			(1) GPIOx_MODER				-> output				
+			(2) GPIOx_OTYPER				-> PP				
+			(3) GPIOx_OSPEEDR				-> 50M				
+			(4) 点灯/灭灯
+				GPIOx_ODR 0点 1灭
+				GPIOx_BSRR 
+		led_reg.h的结构：
+#ifndef __LED_H__
+#define __LED_H__
+
+
+#define rRCCAHB1CLKEN  *((volatile unsigned long *)0x40023830) 	
+
+#define GPIOE_BASE_ADDR  		0x40021000
+#define GPIOF_BASE_ADDR  		0x40021400
+
+#define MODER_OFFSET_ADDR 		0x00
+#define OTYPER_OFFSET_ADDR		0x04
+#define OSPEEDR_OFFSET_ADDR		0x08
+#define PUPDR_OFFSET_ADDR		0x0C
+#define IDR_OFFSET_ADDR			0x10
+#define ODR_OFFSET_ADDR	   		0x14
+#define BSRR_OFFSET_ADDR		0x18
+
+
+#define rGPIOF_MODER   		(*(volatile unsigned long*)(GPIOF_BASE_ADDR+MODER_OFFSET_ADDR))
+#define rGPIOF_OTYPER  		(*(volatile unsigned long*)(GPIOF_BASE_ADDR+OTYPER_OFFSET_ADDR))
+#define rGPIOF_OSPEED		(*(volatile unsigned long*)(GPIOF_BASE_ADDR+OSPEEDR_OFFSET_ADDR))
+#define rGPIOF_PUPDR		(*(volatile unsigned long*)(GPIOF_BASE_ADDR+PUPDR_OFFSET_ADDR))
+#define rGPIOF_ODR  	    (*(volatile unsigned long*)(GPIOF_BASE_ADDR+ODR_OFFSET_ADDR))
+#define rGPIOF_BSRR  		(*(volatile unsigned long*)(GPIOF_BASE_ADDR+BSRR_OFFSET_ADDR))
+
+#define rGPIOE_MODER   		(*(volatile unsigned long*)(GPIOE_BASE_ADDR+MODER_OFFSET_ADDR))
+#define rGPIOE_OTYPER  		(*(volatile unsigned long*)(GPIOE_BASE_ADDR+OTYPER_OFFSET_ADDR))
+#define rGPIOE_OSPEED  		(*(volatile unsigned long*)(GPIOE_BASE_ADDR+OSPEEDR_OFFSET_ADDR))
+#define rGPIOE_PUPDR 		(*(volatile unsigned long*)(GPIOE_BASE_ADDR+PUPDR_OFFSET_ADDR))
+#define rGPIOE_ODR  	    (*(volatile unsigned long*)(GPIOE_BASE_ADDR+ODR_OFFSET_ADDR))
+#define rGPIOE_BSRR  		(*(volatile unsigned long*)(GPIOE_BASE_ADDR+BSRR_OFFSET_ADDR))
+
+enum LED_NUM{LED1,LED2,LED3,LED4};
+
+void led_init(void);
+void led_ctrl( int led_num);
+void delay(int num);
+#endif
+
+
+		led_reg.c的结构：
+		宏定义地址
+		初始化函数（led_init()）
+		点灯控制函数（led_ctrl()）:一次亮一个灯
+		时延函数（led_delay（））
+		main函数（main（））：流水灯效果

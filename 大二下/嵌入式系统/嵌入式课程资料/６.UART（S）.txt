@@ -1,0 +1,514 @@
+0.引言：几个概念
+	通信 ：	数据或信息的交换，传播某种物理信号。
+			传播介质+通信协议
+	上位机与下位机
+		上位机： 处理性能比较强的终端，处理大部分数据。
+		下位机： 功能比较单一，处理性能稍弱如数据采集终端
+			
+	串行通信：单个比特收发。一根有效的数据线。
+	并行通信：多个比特同时收发，至少两根以上数据线。		
+	全双工、半双工、单工:
+		全双工： 通信双方可以在同一时刻进行收和发
+			A   ----->   B
+			A   <-----   B
+				全双工串行通信
+				全双工并行通信				
+		半双工： 通信双方在同一时刻只能进行收或发，下一个时刻方向可以改变
+				t1:
+					A -----> B
+				t2:
+					A <----- B 					
+		单工： 通信双方在任意时刻只能一方发，另一方收
+			A   ------> B   		
+					
+		思考	STM32F407芯片内部CPU与外设的地址总线是？
+				STM32F407芯片内部CPU与外设的数据总线是？		
+		异步：各自有各自的时钟频率 => 不共用时钟。相对约定的时钟频率
+		同步： 绝对的“步调一致”=> "共时钟"	
+		
+		MCU用的比较多的通信媒介或协议有如下 :
+		UART：串口 
+		I2C/IIC
+		SPI
+		CAN	
+		...
+1. 串口概述：
+	一种最常用最简单的串行数据传输协议。
+	UART: Universal Asynchronous Receivers/Transmitter  通用异步收发器
+	USART: Universal Synchronous Asychronous Receiver/Transmitter 通用同步/异步收发器		
+	串口实现模块与模块之间的通信。
+	
+	串行数据：发送数据只有一根线，一次只能发送1bit. 1个bit接着1个bit发送和接收。
+	全双工：　同时收和发，数据线两根数据线实现全双工。		
+		Tx: 发送数据线 Transmitter
+		Rx: 接收数据线	Receivers	
+		Ａ						Ｂ
+		Tx  --------------------> Rx
+		Rx  <-------------------- Tx
+		
+	模块通信A--B：　上位机		下位机
+		模块间通信有多方(多个模块)，可以把这些通信模块分为“上位机”　“下位机”
+		上位机：　把处理性能强的机子，上位机。数据大部分处理都在上位机完成。
+		下位机：　把数据采集的终端，处理性能一般，功能单一的机子，下位机。
+	异步：通信双方不共用时钟，约定一个 “频率/速率”收发数据
+		boadrate  波特率bps 
+		
+	串口只有一根发送数据线，假如：　A要发送一个字符数据 10101010  给B
+		A									B
+		Tx ---------------------------------->Rx
+			 	----	----
+			___		___ 	...
+			
+			高电平周期是多长呢？即使不发送数据Tx线上也有一个电平状态，
+			接收方怎么知道你是在发送数据呢?...
+		=>UART协议
+2. 物理层标准		The Physical Layer Standards
+	
+	串口常见的有如下:
+		TTL level UART:  TTL电平串口 
+		RS-232: 9线制   DB9串口
+		RS-422
+		RS-485
+		
+		TTL电平串口
+			逻辑低电平(0)   0V
+			逻辑高电平(1)   5V/3.3V
+			
+			引脚数: 4个 （大家看看板子 ）
+				Tx
+				Rx
+				GND
+				VCC
+		RS-232:
+			逻辑低电平(0)		+3v ~ +15v
+			逻辑高电平(1)		-3v ~ -15V			
+			引脚数: 9个		
+	
+			TTL UART			RS-232			RS-422		RS-485
+	电平	1	3.3v/5v		 1 -5v~-15V			+/- 2v		+/- 1.5v
+			0	0V			 0 +5v~+15v				
+	信号		单端信号		单端信号		差分信号	差分信号		
+	传输长度	< 2m			<15m			<1200m		<1200m	
+		
+		注意：物理层不同标准的信号差异。信号不同需要转换电路
+	
+	
+3. UART数据如何传输的？　
+	串口发送和接收数据是以帧为单位。　Frame	
+	1帧(Frame) = 1 start bit(起始位)　+　5~9bits数据位　+　0/1 bit校验位　+　STOP bits(0.5/1/1.5/2停止位)
+		起始位: 一个周期的低电平 0 （串口线在空闲时，高电平）
+		数据位：　5~9bits 数据位，具体是多少bits,需要双方协商。 8
+				　并且传送是先传送LSB(最低位)…… MSB(最高位)
+		校验位： 有没有校验位或是什么类型的校验需要双方协商。 无
+			0 bit  ：没有校验位
+			1 bit : 校验位　　　X
+					D0 D1 D2 ... Dn  X					
+					奇校验:要保证传输的1的个数为奇数						
+						1 0 1 0 1 0 1 0  X(1)
+						1 0 1 0 1 0 1 1  X(0)						
+					偶校验: 要保证传输的1的个数为偶数
+					
+		停止位：　高电平  		1
+				0.5个高电平　。半个周期的高电平
+				1个停止位	1个周期的高电平
+				1.5个
+				2个				
+				
+		Baudrate(波特率)：　传输速率
+				决定　时间周期
+				
+				115200 bps: bits per second
+					F = 115200 HZ
+					T = (1/115200) s
+	
+		异步：　通信的双方没有共同时钟		
+	我们讲解的串口关键词：串行，全双工 异步(协商一致的收发波特率)
+
+思考怎么实现：
+CPU模拟串口协议及时序 			
+			MCU.Px(Tx) ---------------------> 下位机.Rx			
+			1 START BIT
+				PX = 1;
+				delay();
+				Px = 0;
+				delay( dela_t );
+				
+				for (i = 0; i < 8; i++)
+				{
+					Px = Bi
+					delay( dela_t);
+				}	
+		……
+	
+4. STM32F4xx 串口控制器
+		
+	思考：	有时候串口发送方在往Tx发送数据时，对方还没有准备好，发送的数据就会丢弃...怎么办？
+	硬件流控：加两根硬件流控的信号 本例不使用流控就不链接
+				
+		RTS: Request To Send　请求发送信号 输出信号 低电平有效
+			接收方告诉发送方已经准备好了，你可以向我传输数据		
+		CTS: Clear To Send 清除发送信号 输入信号 低电平有效
+			用于判断是否可以向请求方发送数据。我要向你传输数据
+					
+			注意：连接A设备的RTS 连接B设备的CTS ;	A设备的CTS 连接B设备的RTS 。			
+			 A				B
+			RTS <---------> CTS
+			CTS <---------> RTS 
+			 
+						
+	STM32F4xx　UART控制器的寄存器(看图控制器的)
+		RDR: Receiver Data Register
+			接收数据寄存器
+			发送方Tx  -> Rx -----> Shift(接收移位寄存器) -> RDR
+			CPU从RDR把接收到的数据读走，(要及时读走，否则会被
+			下一次接收的数据给覆盖掉)(例如首字符丢失，注意代码书写)			
+		TDR: Transmiterr Data Register
+			发送数据寄存器			
+			CPU把要发送的数据写到 TDR -> Shift(发送移位寄存器)
+				-> Tx -----> Rx(对方)
+				
+		CR: Control Reigster
+			用来控制串口一些行为			
+				IE: Interrupt Enable 中断使能.控制是否产生一个串口中断			
+			TxEIE:  Interrupt Enable 中断使能
+				TxEIE: 发送数据寄存器为空　中断使能位
+				如果此位置1,当TxE == 1（发送数据寄存器为空）时，就会产生一个串口中断
+			TCIC: 发送完成　中断使能位
+				如果此位置1,当TC == 1(发送完成)时，就会产生一个串口中断
+			RXNEIE: 接收数据不为空　中断使能位
+				如果此位置1,当RXNE==1(接收数据寄存器不为空)，就会产生一个串口中断
+			…………
+
+			一个串口控制器，只对应一个中断，但是串口的多个标志，都可以
+			引起串口的中断，所以要在串口中断处理函数中，要加以区分，
+			以作不同的处理。
+		SR: Status Register
+			状态寄存器。用来指示串口控制器一些状态			
+			TxE: Tx data register Empty
+				发送数据寄存器为空，
+				如果此状态为1,表示CPU此时可以往串口发送数据啦
+			TC: Transmitting Completion
+				发送完成标志。
+				TC : 发送完成，对方收到数据？
+				
+				TxE 和　TC不是一个意思
+					TxE只是表示　发送数据寄存器为空：
+						此时数据有可能还在 shift(发送移位寄存器)中
+						TDR -> shift -> Rx(接收方)
+			
+					TC == 1
+						表示 TxE == 1
+							并且shift也为空
+			RXNE: Rx data Register Not Empty
+				 接收数据寄存器　不为空
+				 如果此状态为1,表示CPU此时应该要及时把数据读走啦，否则，可能被覆盖。
+				
+			IDLE ：1 表示此时串口空闲
+				
+			ORE ：1	OverRun Error 覆盖错误
+				
+			PE ：1 Parity Error	检验错误				
+					
+			FE ：1	Frame Error 帧错误
+			....
+			……。
+					
+5. STM32F4xx串口代码流程
+	(1) 串口引脚配置
+		RX/TX 引脚是由GPIO引脚复用的
+		 a. 使能GPIO分组的时钟
+			RCC_AHB1...
+		 b. 配置GPIO引脚的功能
+			GPIO_Init -> AF
+		 c. 选择具体的GPIO引脚的复用功能
+		 （注意查原理图找到对应引脚， U1_TX: PA9 U1_RX: PA10）		 
+			GPIO_PinAFConfig			
+			写代码：
+			//1. GPIO口的配置
+		RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE);
+
+		GPIO_InitTypeDef p;
+		p.GPIO_Mode = GPIO_Mode_AF;
+		p.GPIO_Pin = GPIO_Pin_9 | GPIO_Pin_10;
+		p.GPIO_PuPd = GPIO_PuPd_NOPULL;
+		p.GPIO_Speed = GPIO_Speed_50MHz;
+		GPIO_Init(GPIOA,  &p);
+
+		GPIO_PinAFConfig(GPIOA, GPIO_PinSource9, GPIO_AF_USART1);
+		GPIO_PinAFConfig(GPIOA, GPIO_PinSource10, GPIO_AF_USART1);
+			
+	(2) USART配置
+		 a. 使能USART时钟
+			RCC_APBx... APB2
+			
+		 b. USART_Init
+			void USART_Init(USART_TypeDef* USARTx, USART_InitTypeDef* USART_InitStruct);
+					USARTx: 指定要初始化的串口，如：　USART1,...
+					USART_InitStruct:指向要初始化的结构体。
+				typedef struct
+				{
+				    uint32_t USART_BaudRate;            
+						指定波特率  bps: bits per second		 115200		  
+				  
+				    uint16_t USART_WordLength;         
+						 指定传输字长：　STM32只支持如下两种:
+						 USART_WordLength_8b  
+						 USART_WordLength_9b
+					在STM32中：传输字长　　＝　数据位数 + 检验位数 						
+						USART_WordLength_8b：  8+0
+								8bits数据位 + 0bit校验位
+								7bits数据位 + 1bit校验位(奇/偶校验)
+						
+						USART_WordLength_9b：
+								8bits数据位 + 1bit校验位(奇/偶校验)
+								//9bits数据位 + 0bit校验位	
+								  
+				    uint16_t USART_StopBits;          1 
+							指定停止位数，如下:
+							USART_StopBits_1 		1个周期的停止位
+							USART_StopBits_0_5  	0.5
+							USART_StopBits_1_5		1.5
+							USART_StopBits_2		2
+				  				  
+				    uint16_t USART_Parity;          无   
+							校验方式
+							USART_Parity_No 无校验
+							USART_Parity_Odd  奇校验
+							USART_Parity_Even　偶校验		  
+					uint16_t USART_Mode;      全双工模式
+							串口模式，如下：　可以组合
+								USART_Mode_Rx 接收模式
+								USART_Mode_Tx 发送模式
+								USART_Mode_Rx　｜　USART_Mode_Tx  全双工模式
+					uint16_t USART_HardwareFlowControl;  无
+							硬件流控方式:
+								USART_HardwareFlowControl_None 无硬件流控
+								USART_HardwareFlowControl_RTS  请求发送。
+										当你准备好接收数据 RTS. 接收流控制
+								USART_HardwareFlowControl_CTS  清除发送
+										当你要发送数据时，通知对方。 "发送流控"
+								USART_HardwareFlowControl_RTS_CTS　	
+										发送和接收都用流控制
+				} USART_InitTypeDef;
+
+		写代码：
+		//2.usart配置
+		RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
+		USART_InitTypeDef u;
+		u.USART_BaudRate = 115200;
+		u.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+		u.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+		u.USART_Parity = USART_Parity_No;
+		u.USART_StopBits = USART_StopBits_1;
+		u.USART_WordLength = USART_WordLength_8b;
+		USART_Init(USART1, &u);
+		
+	(3) 中断配置
+		(a) 中断源的控制
+		
+		产生串口中断的事件或标志，有很多，如:	
+			TxE/TC /RXNE 	……。
+		这些事件需要“中断控制位使能”
+		
+			USART_ITConfig用来配置　某个事件，是否产生串口中断
+		void USART_ITConfig(USART_TypeDef* USARTx, 
+					uint16_t USART_IT, 
+					FunctionalState NewState);
+			USARTx: 指定具体的串口编号，如: USART1...
+			USART_IT: 指定要配置的串口中断的引发原因,
+						  @arg USART_IT_CTS:  CTS change interrupt
+						  @arg USART_IT_LBD:  LIN Break detection interrupt
+						  @arg USART_IT_TXE:  Transmit Data Register empty interrupt
+						  @arg USART_IT_TC:   Transmission complete interrupt
+						  @arg USART_IT_RXNE: Receive Data register not empty interrupt
+						  @arg USART_IT_IDLE: Idle line detection interrupt
+						  @arg USART_IT_PE:   Parity Error interrupt
+						  @arg USART_IT_ERR:  Error interrupt(Frame error, noise error, overrun error)
+			NewState:	ENABLE
+						DISABLE
+						
+				实例：串口1，接收数据的中断
+					USART_ITConfig(USART1, USART_IT_RXNE, ENALBE);					
+					串口1，发送数据完成，产生一个串口中断
+					USART_ITConfig(USART1, USART_IT_TC, ENABLE);
+					
+					
+			
+			一个串口，只对应一个中断处理函数，那么在串口
+			中断处理函数中，如何判断是什么原因引起的串口中断呢？			
+					USART_GetITStatus用来指定的串口中断标志，是否产生
+				ITStatus USART_GetITStatus(USART_TypeDef* USARTx, uint16_t USART_IT);
+						USARTx:指定串口编号，如：USART1,...
+						USART_IT: 指定要测试的标志位，如：	
+								USART_IT_RXNE
+								...
+						返回值：
+							SET  相应的标志产生
+							RESET 相应的标志没有产生
+							
+				void USART_ClearITPendingBit(USART_TypeDef* USARTx, uint16_t USART_IT);
+				
+				
+			例子:
+				
+				void xxxx_串口中断处理函数（）
+				{
+					if (USART_GetITStatus(USART1, USART_IT_RXNE) == SET)
+					{
+						.....
+						
+						USART_ClearITPendingBit(USART1, USART_IT_RXNE);
+					}
+					
+					if (USART_GetITStatus(USART1, USART_IT_TC) == SET)
+					{
+						....
+						
+						USART_ClearITPendingBit(USART1, USART_IT_TC);
+					}
+					
+					。。。
+				}
+
+		(b) NVIC控制
+			NVIC_Init()参考中断部分
+			例子：
+				NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);	
+				NVIC_InitTypeDef n;
+				n.NVIC_IRQChannel = USART1_IRQn; // PPP_IRQn
+				n.NVIC_IRQChannelCmd = ENABLE;
+				n.NVIC_IRQChannelPreemptionPriority = 2;
+				n.NVIC_IRQChannelSubPriority = 2;
+				NVIC_Init(&n);
+		
+		(4)  使能串口			
+				USART_Cmd(USART1, ENABLE);
+			eg：USART_Cmd(USART1, ENABLE);
+			
+			
+		
+	(5) 串口数据收发
+		ITStatus USART_GetITStatus(USART_TypeDef* USARTx, uint16_t USART_IT);
+				USARTx:指定串口，如：USART1,...
+				USART_IT: 指定串口事件，如：
+					USART_IT_TXE,
+					USART_IT_TC,
+					USART_IT_RXNE,...
+				返回值:
+					SET: 1,指定的事件产生
+					RESET: 0 指定的事件没产生
+			USART_ReceiveData用来从指定的串口中读取一个数据(a Frame 5~9bits)
+		uint16_t USART_ReceiveData(USART_TypeDef* USARTx)；	
+				
+			清除串口中断标志
+			void USART_ClearITPendingBit(USART_TypeDef* USARTx, uint16_t USART_IT);
+					USARTx: 指定具体的串口，如：USART1,...
+					USART_IT:指定要清除的中断事件，如:
+						USART_IT_TXE
+						USART_IT_TC
+						USART_IT_RXNE
+						...
+		接收(中断函数): 在中断处理函数中，尽可能短。实例如下：
+		void USART1_IRQHandler(void)
+		{
+			//有多个事件(TXE,TC,RXNE, ...)可以引起串口中断
+			//在串口中断处理函数中，一般要判断是什么事件引起的串口中断
+			
+			USART_GetITStatus 用来获取串口中断状态			
+			if (USART_GetITStatus(USART1, USART_IT_RXNE) == SET)
+			{
+				//RXNE事件产生，接收寄存器非空
+				
+				//数据处理
+				uint8_t data = USART_ReceiveData(USART1);
+				
+				//清除中断标志
+				USART_ClearITPendingBit(USART1, USART_IT_RXNE  );
+				
+			}
+			if (USART_GetITStatus(USART1, USART_IT_TC) == SET)
+			{
+				//TC事件产生 发送完毕
+				
+				...
+			}
+			
+		}	
+		
+		---------------
+		发送数据
+				USART_SendData用来发送一帧串口数据(5~9bits)
+			void USART_SendData(USART_TypeDef* USARTx, uint16_t Data)；
+				USARTx:指定具体的串口，如:USART1,USART2,...
+				Data: 要发送的数据	
+				
+				(重点理解标志位理解)
+				USART_GetFlagStatus用来获取串口一些标志位信息
+				FlagStatus USART_GetFlagStatus(USART_TypeDef* USARTx, uint16_t USART_FLAG);
+						USARTx:指定具体的串口，如: USART1,USART2,...
+						USART_FLAG: 指定要判断的标志，如:
+							USART_FLAG_TXE :发送数据寄存器为空
+							USART_FLAG_TC: 发送完成
+							USART_FLAG_RXNE: 接收寄存器非空
+							...
+					 返回值:
+						SET : 1指定的标志产生
+						RESET: 0指定的标志没产生
+		
+			例子:
+				USART_SendData(USART1, 0x41);
+				while ( USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET）	) ; //等待发送结束
+				if (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == SET)
+				
+				
+		思考：	USART_SendData(USART1, data);
+			
+			//等待数据发送完成，“死等”是不合理的，工程应用中不允许 
+			// "限时等待"
+			int t = 255;
+			while ((USART_GetFlagStatus(USART1, USART_FLAG_TC) == RESET) && t--)
+			{
+				Delay_ms(1);
+			}
+			//超时
+			if (t == 0)
+			{
+			}
+		
+						
+	
+作业：测试开发板与主机之间通过串口收发数据（usart.c/usart.h	）
+
+	准备工作：
+	安装软件：串口助手UartAssist  （新版本）
+	连接电脑和开发板（黑色链接线 一头开发板，一头USB电脑）
+	接口：USB-UART(CH340G_SOP16) ： USB转串口 ==》 通常是用 UART1  
+	看图设置跳线 接线要点（看原理图）：usb连接板子上的usb-uart口
+		(RXD---)
+		uart1 的跳线P5 检查跳线帽 1(RXD)-3(USART1_TX) 2(TXD)-4(USART1_RX) 
+		注意跳线标号顺序1/3/5上2/4/6下 1是靠U8这边
+		
+	我的电脑-设备管理 查看端口 不同端口不同,你的呢？
+	UartAssist设置好相关参数 串口号、波特率115200，数据位8+0，停止位1，无硬件流控与初始化串口程序一致
+		
+任务流程：		
+		(1)要工程支持 printf	KEIL5中已经实现了基本的C库，		
+		(2) printf库函数的实现			
+		(3)测试“HELLO WORLD”
+		   主程序main.c中 printf("Hello World!\r\n");		     		   
+		(4)测试uart1的发送与接收（0x66）单个字符(非中断方式)，自己完成中断方式		
+		(5)串口信号控制
+		接收到“1”启动流水灯
+		接收到“2”启动音乐程序
+		(6)综合设计
+		键盘发出指令字符 
+		倒计时30秒，
+		串口助手中输出问候语，
+		开发板上led亮 
+		音乐响起
+	 
+		
+	
+	
+	
+	

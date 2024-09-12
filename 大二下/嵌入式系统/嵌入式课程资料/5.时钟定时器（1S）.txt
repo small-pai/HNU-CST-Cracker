@@ -1,0 +1,190 @@
+1. 时钟是什么？s--ms--us--ns---ps
+	1	-----	 -----    -----
+	0		 ----	  ----     ----
+	T: 时钟周期，最小重复的信号单元的时间长度。
+	f: 频率Hz 单位时间内（电平）完成周期性变化的次数
+		T * f = 1
+	f = 1000 Hz   1s 1000次变化	
+	=> T = 1ms	周期
+	
+	4GHz  
+	T=1/4ns
+	168MHz 1/168us   2*168000000/2S 计数  9+20    168000   168
+
+		
+2.  为什么需要时钟呢？	同步信号。	
+	大部分时序逻辑电路需要时钟信号来同步。		
+		一个解决方案:
+			(1) T > 2 * delt_t   
+					delt_t 电路单元中最大延时。
+				T为clock信号的周期,50%
+			(2) 　输入信号只能在clock低电平(无效)改变，
+				　在clock的高电平时保持稳定			
+		
+3. 时钟信号是怎么产生的?
+	“晶振”：　产生周期性的信号。8M 但是MPU的频率要求高168M，怎么办？
+	“分频/倍频”电路
+		分频：把输入频率变小
+		倍频：把输入频率变大
+	PLL: 锁相环 技术   
+
+	
+4. STM32F4xx 时钟树(时钟系统)看图	p106
+在STM32F4中，有5个最重要的时钟源，后三个是主要的时钟源。
+	LSI: Low Speed Internal 内部低速时钟
+	LSE: Low Speed External 外部低速时钟
+	HSI: High Speed Internal 内部高速时钟
+	HSE: High Speed External 外部高速时钟
+	PLLCLK其中PLL实际是分为两个时钟源，分别为主PLL和专用PLL
+		
+	在开发板上面， HSE_VALUE = 8M #define HSE_VALUE    ((uint32_t)8000000) /
+	分频器PLL_M=8，倍频器倍频系数PLL_N=336，分频器分频系数PLL_P=2，
+	PLL=8MHz* N/ (M*P)=8MHz* 336 /(8*2) = 168MHz（主PLL） 
+	Cortex M4 F407主频最高可达　　168M Hz	
+	
+	用户可通过多个预分频器配置AHB总线、高速APB2总线和低速APB1总线的频率。
+	AHB 域的最大频率为 168 MHz。AHB prescaler
+	M4 clock = AHB BUS clock = 168M 
+	低速 APB1 域的最大允许频率为 42 MHz。			
+			APB1 BUS clock = AHB BUS Clock/(APB1 prescaler)= 168M / 4 = 42M
+	高速 APB2 域的最大允许频率为 84MHz。						
+			APB2 bus clock = AHB BUS Clock/(APB2 prescaler) = 168M / 2 = 84M
+			
+	注意：STM32F405xx/07xx 和 STM32F415xx/17xx 的定时器时钟频率由硬件自动设置。
+	分为两种 情况
+	1. 如果 APB 预分频器为 1，定时器时钟频率等于 APB 域的频率。
+	2. 否则，等于 APB 域的频率的两倍 (×2)。	
+		TIMx在APBx总线，
+			if APBx prescaler == 1 则:
+				TIM的输入频率 = APBx BUS clock
+			else
+				TIM的输入频率 = APBx BUS clock * 2
+		例子:
+			TIM13在APB1总线上:
+				APB1 prescaler = 4
+					APB1 BUS clock = AHB BUS clock / APB1 prescaler
+									= 168M / 4
+									= 42M
+				APB1 prescaler != 1				
+			TIM13的输入时钟频率 = APB1 bus clock * 2 = 84M--8399-10K--N-200-2000
+			200-2000
+				
+	大家动手修改代码:
+		目标:PLLCLK = 168M			
+			AHB BUS clock = 168M			
+			APB1 BUS clock = 42M			
+			APB2 BUS clock = 84M			
+		－－－－		
+			PLLCLK = (HSE_VALUE  / M) * N / P			
+				HSE_VALUE -> 8000000  (stm32f4xx.h,line 144) 				
+				注意看一下 line 54行的注释
+				PLL_M -> 8    	371行
+				PLL_N -> 336	401
+				PLL_P -> 2		403
+						以上三个值都在文件: system_stm32f4xx.c	
+						注意是：(STM32F40_41xxx)
+			
+---------------------------------------定时器 timer---------------
+1. 定时器：	用来定时的器件。
+	定时器 -> 计数器	
+	
+2. 定时器的基本原理
+	在STM32上，定时器由三个部分组成
+	(1) 时基单元 : Time Base Unit 定时器的基本部件。		
+		“计数器”可以设置为从设定值递减到0,也可以设置从0按照递增到设定值。
+		然后产生一个溢出事件/中断，从而达到定时的功能。
+		例子:
+			假设一个定时器TIM的时钟频率为 f,
+			设定的计数值为N,按照递减的方式来计数				
+				每隔　(1/f)s 就会 -1
+				N -> 0 => (N+1) * (1/f) s				
+			到0,产生一个中断，时间为: (N+1) * (1/f) s
+								
+			－－－－－－
+			任务：延时2秒 168M 84M  168000-1    84000000
+			假设：	f = 8M Hz，定时1s,怎么设定N 1ms---167999   1us---167
+				N * (1/8M)s = 1s
+				N = 8000000 - 1 = 799999
+168M 167999999				
+						
+		Time Base Unit 核心部件就是一个“计数器”，该“计数器”
+		内部有三个寄存器：
+			TIMx_ARR: Auto Reload Register 自动加载寄存器　<- N
+			TIMx_CNT: Counter 计数器
+			TIMx_PSC: PreSCaler 时钟预分频	
+				
+			“溢出事件/中断”
+				　单向递增 0 -> N  => 产生溢出事件/中断
+				　单向递减 N -> 0  => 产生溢出事件/中断				
+				
+	(2) 输入捕获单元: 可以对一个或多个输入信号进行处理
+		有些定时器没有。
+		可以捕获一个或多个输入信号(看你这个定时器有几个输入通道 CHx_IN)
+		有什么用呢？如：　可以计算输入信号的频率		
+		输入信号经过“输入捕获阶段”(数字滤波、多路复用、预分频等等)，
+		到信号检测，当检测到需要的信号状态变化时(上升沿/下降沿)，
+		就会把定时器时基单元中计数器的值，锁定到“捕获/比较寄存器”
+		这样，就可能根据预先设定的定时器的参数(时钟频率，N值等等)，
+		就可以算出从开始到捕获这个信号状态的这一段的时间。				
+		
+	(3) 输出比较单元：　可以输出一个或多个信号
+		有些定时器没有。		
+		定时器还可以输出一个电平、
+		并且可以根据“比较寄存器”的值，翻转电平的状态。
+		如:	 CCR: Capture Compare Register捕获/比较寄存器
+		定时器的第(2)输入捕获单元　和第(3) 输出比较单元	不同时用。
+			CNT >= CCR　输出一个高电平
+			CNT < CCR	输出一个低电平
+			作用：如PWM方波（实例中用）
+				
+3. STM32F4xx定时器概述
+	SysTick		系统定时器，作为整个系统的基本的时间单元。
+		有所有有Cortex M3/M4中都会内置于NVIC一个SysTick的定时器。
+		这个定时器只有一个时基单元。
+		并且在溢出时，会产生一个SysTick异常(中断)。		
+		延时 -> 可以用SysTick来实现啦		
+		SysTick定时器说明及寄存器设置: 《ARM Cortex M4权威指南》
+		CortexM3与M4权威指南.pdf  中文pp:282	
+		 NVIC exception type #15.  decrement 24-bit					
+		它被内置于NVIC中，它能够产生一个SysTick异常（异常类型 #15）.这个SysTick定时器
+		是一个简单的24bits的递减定时器，它可以运行在处理器的时钟频率上，也可以运行在一个
+		外部的时钟频率上(通常在片上的时钟源)
+		
+		（1）SysTick控制及状态寄存器（地址：0xE000_E010）
+		[0]:SYSTICK使能1/禁止0  
+		[1]:计数中断使能1/禁止0 
+		[2]:使用系统内核时钟168M 1 外部时钟源 0
+		[16]:如果在上次读取本寄存器后，SysTick 已经数到了0，则该位为 1。
+				如果读取该位，该位将自动清零
+		例子：
+				rSysTickCtrl &=  ~(1 << 0) ; // bit0 -> 0 disable systick
+				rSysTickCtrl |= (1 << 1) | (1 << 2); //enable systick int
+													//选择内核时钟 168M		
+		（2）SysTick重装载数值寄存器（地址：0xE000_E014）
+			[23:0]重载计数值，当倒数至零时，将被重装载的值。
+		例子：rSysTickReload = 167999		//168000-1，168000/168000000=1ms
+		（3）SysTick当前数值寄存器（地址：0xE000_E018）
+			[23:0]当前计数值，读取时返回当前倒计数的值，写它则使之清零
+		例子：rSysTickCUR = 167999	//168000-1，168000/168000000=1ms		
+		
+				
+	作业：
+		1. 在我们的工程代码中，实现两个延时函数			
+			systick.c/systick.h						
+			//实现毫秒级的延时 
+			void Delay_ms(uint32_t d)
+			{}			
+			//实现微秒级的延时
+			void Delay_us(uint32_t d)
+			{}	
+			
+			systick.h		
+			#ifndef SYSTICK_H__
+			#define SYSTICK_H__
+			void Delay_ms(uint32_t);
+			void Delay_us(uint32_t);
+			#endif
+							
+			
+	2.中断方式按键实现流水灯，每个灯之间切换时延2s,设计一个合理的方案。
+	
